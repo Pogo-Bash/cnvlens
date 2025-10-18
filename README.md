@@ -212,5 +212,5 @@ Built by [@Pogo-Bash](https://github.com/Pogo-Bash)
 
 Questions? Open an issue or hit me up.
 
-**Let's make genomics analysis suck less.** 🚀
+**Let's make genomics analysis run smooth** 🚀
 
