@@ -12,7 +12,7 @@
 
 ## What's This?
 
-Ever tried using genomics analysis tools? They're a pain. Upload your data to some server, wait hours, pray your internet doesn't die, and hope they're not selling your patient data.
+Ever tried using genomics analysis tools? They're a pain. Upload your data to some server, wait hours, pray your internet doesn't die
 
 **LungSeq Analyzer** flips that model on its head:
 - ✅ Everything runs **locally in your browser** via WebAssembly
@@ -20,8 +20,6 @@ Ever tried using genomics analysis tools? They're a pain. Upload your data to so
 - ✅ Results in **minutes, not hours**
 - ✅ **Zero cost** - no cloud compute bills
 - ✅ Works **offline** once loaded
-
-Built for a bioinformatics class project, but designed like it's going into production.
 
 ---
 
