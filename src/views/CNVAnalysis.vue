@@ -14,6 +14,9 @@
       <p class="text-lg text-base-content/70">Detect gene amplifications and deletions in cancer genomes using biowasm</p>
     </div>
 
+    <!-- Browser Compatibility Warning -->
+    <BrowserCompatWarning />
+
     <!-- Storage Info -->
     <div class="alert shadow-lg" v-if="storageInfo">
       <div class="flex items-center gap-2">
@@ -22,7 +25,10 @@
         </svg>
         <div>
           <div class="font-bold">Storage Status</div>
-          <div class="text-xs">Used: {{ storageInfo.usageMB }}MB / {{ storageInfo.quotaMB }}MB ({{ storageInfo.percentUsed }}%)</div>
+          <div class="text-xs">
+            Type: {{ storageInfo.storageType?.toUpperCase() || 'Unknown' }} |
+            Used: {{ storageInfo.usageMB }}MB / {{ storageInfo.quotaMB }}MB ({{ storageInfo.percentUsed }}%)
+          </div>
         </div>
       </div>
       <div class="flex gap-2">
@@ -220,6 +226,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import CNVVisualization from '../components/CNVVisualization.vue';
+import BrowserCompatWarning from '../components/BrowserCompatWarning.vue';
 import { cnvAnalyzer } from '../services/cnv-analyzer.js';
 import { opfsManager } from '../utils/opfs-manager.js';
 
@@ -295,7 +302,7 @@ async function runAnalysis() {
 
 async function refreshStorage() {
   try {
-    storageInfo.value = await opfsManager.getStorageStats();
+    storageInfo.value = await opfsManager.getStorageInfo();
   } catch (err) {
     console.error('Failed to get storage info:', err);
   }

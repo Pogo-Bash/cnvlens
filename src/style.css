@@ -6,15 +6,15 @@
   .chromosome-bar {
     @apply h-8 rounded-lg shadow-md cursor-pointer transition-all hover:shadow-lg;
   }
-  
+
   .variant-card {
     @apply bg-base-200 p-4 rounded-lg shadow hover:shadow-md transition-all;
   }
-  
+
   .pipeline-step {
     @apply flex items-center gap-4 p-6 bg-base-100 rounded-lg border-2 border-base-300;
   }
-  
+
   .pipeline-step.active {
     @apply border-primary;
     background-color: rgba(99, 102, 241, 0.1);
@@ -26,10 +26,70 @@
   }
 }
 
+/* Cross-browser compatibility fixes */
 html {
   scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Firefox scrollbar styling */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(155, 155, 155, 0.5) transparent;
+}
+
+/* Webkit/Chromium scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(155, 155, 155, 0.5);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(155, 155, 155, 0.7);
 }
 
 .spinner {
   @apply animate-spin rounded-full h-12 w-12 border-4 border-primary border-t-transparent;
+}
+
+/* Ensure consistent input rendering across browsers */
+input[type="file"],
+input[type="number"],
+select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+}
+
+/* Fix for Firefox file input button */
+input[type="file"]::-webkit-file-upload-button {
+  cursor: pointer;
+}
+
+input[type="file"]::file-selector-button {
+  cursor: pointer;
+}
+
+/* Ensure consistent focus styles */
+*:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+/* Fix for Safari sticky positioning */
+@supports (-webkit-overflow-scrolling: touch) {
+  .sticky {
+    position: -webkit-sticky;
+    position: sticky;
+  }
 }
