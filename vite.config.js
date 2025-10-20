@@ -30,6 +30,18 @@ export default defineConfig({
   preview: {
     host: '0.0.0.0', // Also for production preview
     port: process.env.PORT || 3000,
+    strictPort: true, // Exit if port is already in use
+    // Allow Render and other hosting platforms
+    allowedHosts: [
+      '.onrender.com', // Render domains
+      'localhost',
+      '127.0.0.1',
+    ],
+    // Enable CORS headers for WebAssembly
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    },
   },
   
   optimizeDeps: {
