@@ -3,9 +3,10 @@ import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
   plugins: [vue()],
-  
+
   server: {
-    port: 3000,
+    host: '0.0.0.0', // Bind to all interfaces for Render
+    port: process.env.PORT || 3000, // Use Render's PORT env variable
     // Enable SharedArrayBuffer for WASM threading
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
@@ -24,6 +25,11 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api\/icgc/, ''),
       },
     },
+  },
+
+  preview: {
+    host: '0.0.0.0', // Also for production preview
+    port: process.env.PORT || 3000,
   },
   
   optimizeDeps: {

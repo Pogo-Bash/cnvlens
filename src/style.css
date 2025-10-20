@@ -16,11 +16,13 @@
   }
   
   .pipeline-step.active {
-    @apply border-primary bg-primary/10;
+    @apply border-primary;
+    background-color: rgba(99, 102, 241, 0.1);
   }
-  
+
   .pipeline-step.complete {
-    @apply border-success bg-success/10;
+    @apply border-success;
+    background-color: rgba(34, 197, 94, 0.1);
   }
 }
 
