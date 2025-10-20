@@ -80,6 +80,14 @@ The app REQUIRES these headers for WebAssembly/biowasm to work:
 
 These are already configured in `vite.config.js` and will work with `npm run preview`!
 
+### Allowed Hosts
+Vite preview server is configured to accept requests from:
+- `.onrender.com` domains (Render hosting)
+- `localhost` (local development)
+- `127.0.0.1` (local development)
+
+This prevents the "Blocked request. This host is not allowed" error on Render!
+
 ### Port Binding
 ✓ Already configured: The app listens on `0.0.0.0` and uses Render's PORT env variable
 
