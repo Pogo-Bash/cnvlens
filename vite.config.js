@@ -8,9 +8,10 @@ export default defineConfig({
     host: '0.0.0.0', // Bind to all interfaces for Render
     port: process.env.PORT || 3000, // Use Render's PORT env variable
     // Enable SharedArrayBuffer for WASM threading
+    // Using credentialless to allow biowasm CDN resources
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Embedder-Policy': 'credentialless',
     },
     // Proxy for TCGA/ICGC APIs (avoid CORS)
     proxy: {
@@ -38,9 +39,10 @@ export default defineConfig({
       '127.0.0.1',
     ],
     // Enable CORS headers for WebAssembly
+    // Using credentialless to allow biowasm CDN resources
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Embedder-Policy': 'credentialless',
     },
   },
   

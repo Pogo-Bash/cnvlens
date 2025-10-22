@@ -22,6 +22,7 @@ class CNVAnalyzer {
       onProgress?.({ stage: 'init', message: 'Initializing biowasm tools...' });
 
       // Initialize Aioli with samtools
+      // This downloads WebAssembly modules from CDN
       this.samtools = await new Aioli('samtools/1.17');
 
       this.initialized = true;
@@ -29,7 +30,13 @@ class CNVAnalyzer {
       console.log('CNV Analyzer initialized');
     } catch (error) {
       console.error('Failed to initialize CNV Analyzer:', error);
-      throw error;
+
+      // Provide helpful error message for common issues
+      if (error.message?.includes('CORS') || error.message?.includes('fetch')) {
+        throw new Error('Failed to load biowasm tools from CDN. Please check your internet connection and browser CORS settings. If using Firefox, ensure the dev server is running with proper headers.');
+      }
+
+      throw new Error(`Failed to initialize biowasm: ${error.message}`);
     }
   }
 
