@@ -2,17 +2,31 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [
+    vue(),
+    // Custom plugin to ensure CORS headers on all responses
+    {
+      name: 'configure-cors-headers',
+      configurePreviewServer(server) {
+        server.middlewares.use((req, res, next) => {
+          res.setHeader('Cross-Origin-Opener-Policy', 'same-origin')
+          res.setHeader('Cross-Origin-Embedder-Policy', 'credentialless')
+          next()
+        })
+      },
+      configureServer(server) {
+        server.middlewares.use((req, res, next) => {
+          res.setHeader('Cross-Origin-Opener-Policy', 'same-origin')
+          res.setHeader('Cross-Origin-Embedder-Policy', 'credentialless')
+          next()
+        })
+      }
+    }
+  ],
 
   server: {
     host: '0.0.0.0', // Bind to all interfaces for Render
     port: process.env.PORT || 3000, // Use Render's PORT env variable
-    // Enable SharedArrayBuffer for WASM threading
-    // Using credentialless to allow biowasm CDN resources
-    headers: {
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'credentialless',
-    },
     // Proxy for TCGA/ICGC APIs (avoid CORS)
     proxy: {
       '/api/gdc': {
@@ -38,12 +52,6 @@ export default defineConfig({
       'localhost',
       '127.0.0.1',
     ],
-    // Enable CORS headers for WebAssembly
-    // Using credentialless to allow biowasm CDN resources
-    headers: {
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'credentialless',
-    },
   },
   
   optimizeDeps: {
