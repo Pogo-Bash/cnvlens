@@ -55,7 +55,7 @@ export default defineConfig({
   },
   
   optimizeDeps: {
-    exclude: ['biowasm'], // Will create this later
+    exclude: ['pyodide'] // Don't pre-bundle Pyodide
   },
   
   build: {
