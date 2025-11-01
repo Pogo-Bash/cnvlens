@@ -37,8 +37,20 @@
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
         <div>
-          <div class="font-bold">Python Environment Ready</div>
-          <div class="text-xs">Advanced Python-based analysis available (NumPy loaded)</div>
+          <div class="font-bold">🐍 Python Bioinformatics Pipeline Ready</div>
+          <div class="text-xs">Using pure Python BAM parser + NumPy/SciPy for CNV analysis (WASM-powered)</div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="pyodide.error.value" class="alert alert-error shadow-lg">
+      <div class="flex items-center gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <div>
+          <div class="font-bold">Python Environment Error</div>
+          <div class="text-xs">{{ pyodide.error.value }} - Will use fallback if available</div>
         </div>
       </div>
     </div>
@@ -133,10 +145,14 @@
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 inline mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                 </svg>
-                Run CNV Detection
+                Run CNV Detection (Python)
               </span>
               <span v-else class="loading loading-spinner"></span>
             </button>
+
+            <div v-if="!pyodide.isReady.value && !pyodide.error.value" class="mt-2 text-sm text-info">
+              ⏳ Python environment loading in background... Analysis will use Python when ready.
+            </div>
           </div>
         </div>
       </div>
@@ -253,7 +269,6 @@
 import { ref, computed, onMounted } from 'vue';
 import CNVVisualization from '../components/CNVVisualization.vue';
 import BrowserCompatWarning from '../components/BrowserCompatWarning.vue';
-import { cnvAnalyzer } from '../services/cnv-analyzer.js';
 import { analysisService } from '../services/analysis-service.js';
 import { opfsManager } from '../utils/opfs-manager.js';
 import { useGlobalPyodide } from '../composables/usePyodide.js';
@@ -315,7 +330,9 @@ async function runAnalysis() {
   progress.value = { message: 'Starting analysis...', progress: 0, stage: '', chromosome: '' };
 
   try {
-    const analysisResults = await cnvAnalyzer.analyzeCNV(selectedFile.value, {
+    // Use analysisService instead of cnvAnalyzer directly
+    // This routes to Pyodide (Python) by default with biowasm fallback
+    const analysisResults = await analysisService.analyzeCNV(selectedFile.value, {
       windowSize: windowSize.value,
       chromosome: selectedChromosome.value || null,
       onProgress: (p) => {
