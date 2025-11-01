@@ -53,25 +53,28 @@ class AnalysisService {
   }
 
   /**
-   * CNV analysis with Pyodide (Python/pysam)
-   * This will be implemented once pysam is available
+   * CNV analysis with Pyodide (Python)
+   * Uses pure Python BAM parser + NumPy + SciPy
    */
   async analyzeCNVWithPyodide(bamFile, options = {}) {
     if (!this.pyodide?.isReady.value) {
-      throw new Error('Pyodide not ready');
+      throw new Error('Pyodide not ready. Please wait for Python environment to initialize.');
     }
 
+    console.log('Reading BAM file into memory...');
     const arrayBuffer = await bamFile.arrayBuffer();
 
-    // For now, this is a placeholder
-    // Will be replaced with full pysam implementation
-    const result = await this.pyodide.analyzeBam(arrayBuffer, options);
+    console.log(`Analyzing BAM file (${(arrayBuffer.byteLength / 1024 / 1024).toFixed(2)} MB) with Python...`);
 
-    return {
-      ...result,
-      method: 'pyodide',
-      note: 'Full pysam CNV analysis coming soon'
-    };
+    // Call Python BAM analysis
+    const result = await this.pyodide.analyzeBam(arrayBuffer, {
+      windowSize: options.windowSize || 10000,
+      chromosome: options.chromosome || null
+    });
+
+    // Python returns the complete result with coverageData, cnvs, etc.
+    // Just return it directly (it already has the correct format)
+    return result;
   }
 
   /**
