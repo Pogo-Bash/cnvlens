@@ -4,6 +4,10 @@
  * Uses pysam, NumPy, SciPy for genomics analysis
  */
 
+// Log worker type for debugging
+console.log('🔧 Pyodide worker starting...');
+console.log('🔧 Worker type:', typeof importScripts !== 'undefined' ? 'CLASSIC ✅' : 'MODULE ❌');
+
 let pyodide = null;
 let isInitialized = false;
 let initializationPromise = null;
@@ -43,8 +47,32 @@ async function initializePyodide() {
         progress: 30
       });
 
-      // Load core scientific packages
-      await pyodide.loadPackage(['numpy', 'scipy', 'micropip']);
+      // Load core scientific packages one by one with error handling
+      try {
+        await pyodide.loadPackage('numpy');
+        console.log('✓ NumPy loaded');
+
+        self.postMessage({
+          type: 'status',
+          message: 'Loading SciPy...',
+          progress: 40
+        });
+
+        await pyodide.loadPackage('scipy');
+        console.log('✓ SciPy loaded');
+
+        self.postMessage({
+          type: 'status',
+          message: 'Loading micropip...',
+          progress: 45
+        });
+
+        await pyodide.loadPackage('micropip');
+        console.log('✓ micropip loaded');
+      } catch (error) {
+        console.error('Failed to load packages:', error);
+        throw new Error(`Package loading failed: ${error.message}`);
+      }
 
       self.postMessage({
         type: 'status',
@@ -88,6 +116,41 @@ async function initializePyodide() {
         progress: 80
       });
 
+      // Verify packages are importable
+      try {
+        await pyodide.runPythonAsync(`
+import sys
+print(f"Python {sys.version} ready")
+
+# Test NumPy import
+try:
+    import numpy as np
+    print(f"✓ NumPy {np.__version__} loaded")
+except ImportError as e:
+    print(f"✗ NumPy import failed: {e}")
+    raise
+
+# Test SciPy import
+try:
+    from scipy import stats, signal
+    print(f"✓ SciPy loaded")
+except ImportError as e:
+    print(f"✗ SciPy import failed: {e}")
+    raise
+
+# Other imports
+import json
+import struct
+import gzip
+        `);
+      } catch (error) {
+        console.error('Package import test failed:', error);
+        throw new Error(`Failed to import packages: ${error.message}`);
+      }
+
+      console.log('Packages imported successfully, defining analysis functions...');
+
+      // Now define the analysis functions
       await pyodide.runPythonAsync(`
 import numpy as np
 from scipy import stats, signal
@@ -95,9 +158,6 @@ import json
 import struct
 import gzip
 import sys
-
-print(f"Python {sys.version} initialized in worker")
-print(f"NumPy {np.__version__} loaded")
 
 # Pure Python BAM parser (lightweight, works without pysam)
 class SimpleBamReader:

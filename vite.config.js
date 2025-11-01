@@ -64,7 +64,9 @@ export default defineConfig({
     assetsInlineLimit: 0,
   },
   
+  // IMPORTANT: Workers MUST use IIFE format for importScripts() to work
+  // Classic workers (non-module) require this setting
   worker: {
-    format: 'iife', // Use IIFE format for classic workers (required for importScripts)
+    format: 'iife',
   },
 })
