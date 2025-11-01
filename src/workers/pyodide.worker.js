@@ -37,7 +37,7 @@ async function initializePyodide() {
       });
 
       pyodide = await self.loadPyodide({
-        indexURL: '/pyodide/',
+        indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.24.1/full/',
         fullStdLib: false,
       });
 
