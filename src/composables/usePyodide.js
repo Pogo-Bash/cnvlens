@@ -41,6 +41,15 @@ export function usePyodide() {
         }
       }
 
+      // Handle analysis progress updates
+      if (type === 'analysis-progress') {
+        status.value = event.data.message;
+        if (event.data.progress !== undefined) {
+          progress.value = event.data.progress;
+        }
+        console.log(`Analysis: ${event.data.stage} - ${event.data.message}`);
+      }
+
       // Handle ready state
       if (type === 'ready') {
         isReady.value = true;

@@ -8,9 +8,9 @@ import { cnvAnalyzer } from './cnv-analyzer.js';
 
 // Feature flags for gradual rollout
 const FEATURE_FLAGS = {
-  USE_PYODIDE_FOR_CNV: false, // Keep false until Pyodide + pysam is fully tested
-  USE_PYODIDE_FOR_STATS: true, // Can use Python for statistical analysis
-  FALLBACK_TO_BIOWASM: true, // Fallback if Pyodide fails
+  USE_PYODIDE_FOR_CNV: true,   // ✅ ENABLED: Full Python bioinformatics pipeline
+  USE_PYODIDE_FOR_STATS: true,  // ✅ Python statistical analysis
+  FALLBACK_TO_BIOWASM: true,    // ✅ Fallback if Pyodide fails (safety net)
 };
 
 class AnalysisService {
