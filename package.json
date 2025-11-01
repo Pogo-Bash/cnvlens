@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "npm run copy-pyodide && vite",
     "build": "npm run copy-pyodide && vite build",
+    "build:clean": "rm -rf dist node_modules/.vite && npm run build",
     "preview": "vite preview",
     "copy-pyodide": "node scripts/copy-pyodide.js"
   },

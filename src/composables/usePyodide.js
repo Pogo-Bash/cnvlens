@@ -24,9 +24,9 @@ export function usePyodide() {
 
     // Create worker as classic (non-module) worker
     // This is required because Pyodide uses importScripts()
+    // The ?worker suffix tells Vite to bundle as classic worker (IIFE)
     worker = new Worker(
-      new URL('../workers/pyodide.worker.js', import.meta.url)
-      // Don't specify type: 'module' - use classic worker for importScripts
+      new URL('../workers/pyodide.worker.js?worker', import.meta.url)
     );
 
     // Handle messages from worker
