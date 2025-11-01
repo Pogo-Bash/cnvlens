@@ -1,22 +1,12 @@
 /**
  * Analysis Service
  * Provides unified interface for genomics analysis
- * Supports both Pyodide (Python) and biowasm implementations
+ * Uses Pyodide (Python) for all bioinformatics analysis
  */
-
-import { cnvAnalyzer } from './cnv-analyzer.js';
-
-// Feature flags for gradual rollout
-const FEATURE_FLAGS = {
-  USE_PYODIDE_FOR_CNV: true,   // ✅ ENABLED: Full Python bioinformatics pipeline
-  USE_PYODIDE_FOR_STATS: true,  // ✅ Python statistical analysis
-  FALLBACK_TO_BIOWASM: true,    // ✅ Fallback if Pyodide fails (safety net)
-};
 
 class AnalysisService {
   constructor() {
     this.pyodide = null;
-    this.biowasmCnvAnalyzer = cnvAnalyzer; // Existing biowasm CNV analyzer
   }
 
   /**
@@ -28,39 +18,14 @@ class AnalysisService {
   }
 
   /**
-   * Analyze CNV from BAM file - uses best available method
+   * Analyze CNV from BAM file using Python
    */
   async analyzeCNV(bamFile, options = {}) {
-    // Try Pyodide first if enabled and ready
-    if (FEATURE_FLAGS.USE_PYODIDE_FOR_CNV && this.pyodide?.isReady.value) {
-      try {
-        console.log('Using Pyodide for CNV analysis');
-        return await this.analyzeCNVWithPyodide(bamFile, options);
-      } catch (error) {
-        console.error('Pyodide CNV analysis failed:', error);
-
-        if (!FEATURE_FLAGS.FALLBACK_TO_BIOWASM) {
-          throw error;
-        }
-
-        console.log('Falling back to biowasm');
-      }
-    }
-
-    // Use biowasm (current working implementation)
-    console.log('Using biowasm for CNV analysis');
-    return await this.biowasmCnvAnalyzer.analyzeCNV(bamFile, options);
-  }
-
-  /**
-   * CNV analysis with Pyodide (Python)
-   * Uses pure Python BAM parser + NumPy + SciPy
-   */
-  async analyzeCNVWithPyodide(bamFile, options = {}) {
     if (!this.pyodide?.isReady.value) {
-      throw new Error('Pyodide not ready. Please wait for Python environment to initialize.');
+      throw new Error('Python environment not ready. Please wait for initialization to complete.');
     }
 
+    console.log('Using Pyodide for CNV analysis');
     console.log('Reading BAM file into memory...');
     const arrayBuffer = await bamFile.arrayBuffer();
 
@@ -73,7 +38,6 @@ class AnalysisService {
     });
 
     // Python returns the complete result with coverageData, cnvs, etc.
-    // Just return it directly (it already has the correct format)
     return result;
   }
 
@@ -148,23 +112,6 @@ json.dumps(result)
   }
 
   /**
-   * Check if biowasm is available
-   */
-  isBiowasmAvailable() {
-    return !!this.biowasmCnvAnalyzer;
-  }
-
-  /**
-   * Get current analysis method
-   */
-  getCurrentMethod() {
-    if (FEATURE_FLAGS.USE_PYODIDE_FOR_CNV && this.isPyodideReady()) {
-      return 'pyodide';
-    }
-    return 'biowasm';
-  }
-
-  /**
    * Get service status
    */
   getStatus() {
@@ -176,12 +123,7 @@ json.dumps(result)
         progress: this.pyodide?.progress.value || 0,
         status: this.pyodide?.status.value || ''
       },
-      biowasm: {
-        available: this.isBiowasmAvailable(),
-        initialized: this.biowasmCnvAnalyzer?.initialized || false
-      },
-      currentMethod: this.getCurrentMethod(),
-      featureFlags: FEATURE_FLAGS
+      method: 'python'
     };
   }
 }
