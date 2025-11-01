@@ -17,6 +17,32 @@
     <!-- Browser Compatibility Warning -->
     <BrowserCompatWarning />
 
+    <!-- Pyodide Status (non-intrusive) -->
+    <div v-if="pyodide.isInitializing.value" class="alert alert-info shadow-lg">
+      <div class="flex items-center gap-2">
+        <span class="loading loading-spinner loading-sm"></span>
+        <div>
+          <div class="font-bold">Python Environment Loading</div>
+          <div class="text-xs">
+            {{ pyodide.status.value }} ({{ pyodide.progress.value }}%)
+          </div>
+        </div>
+      </div>
+      <progress class="progress progress-info w-32" :value="pyodide.progress.value" max="100"></progress>
+    </div>
+
+    <div v-if="pyodide.isReady.value" class="alert alert-success shadow-lg">
+      <div class="flex items-center gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <div>
+          <div class="font-bold">Python Environment Ready</div>
+          <div class="text-xs">Advanced Python-based analysis available (NumPy loaded)</div>
+        </div>
+      </div>
+    </div>
+
     <!-- Storage Info -->
     <div class="alert shadow-lg" v-if="storageInfo">
       <div class="flex items-center gap-2">
@@ -228,7 +254,12 @@ import { ref, computed, onMounted } from 'vue';
 import CNVVisualization from '../components/CNVVisualization.vue';
 import BrowserCompatWarning from '../components/BrowserCompatWarning.vue';
 import { cnvAnalyzer } from '../services/cnv-analyzer.js';
+import { analysisService } from '../services/analysis-service.js';
 import { opfsManager } from '../utils/opfs-manager.js';
+import { useGlobalPyodide } from '../composables/usePyodide.js';
+
+// Initialize Pyodide in background (non-blocking)
+const pyodide = useGlobalPyodide();
 
 // State
 const selectedFile = ref(null);
@@ -259,6 +290,11 @@ const deletionCount = computed(() => {
 // Lifecycle
 onMounted(async () => {
   await refreshStorage();
+
+  // Initialize analysis service with Pyodide
+  analysisService.initialize(pyodide);
+
+  console.log('CNV Analysis view mounted - Pyodide loading in background');
 });
 
 // Methods

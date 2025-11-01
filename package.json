@@ -4,9 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "dev": "npm run copy-pyodide && vite",
+    "build": "npm run copy-pyodide && vite build",
+    "preview": "vite preview",
+    "copy-pyodide": "node scripts/copy-pyodide.js"
   },
   "dependencies": {
     "@biowasm/aioli": "^3.2.1",
@@ -14,6 +15,7 @@
     "jszip": "^3.10.1",
     "pako": "^2.1.0",
     "plotly.js-dist-min": "^3.1.2",
+    "pyodide": "^0.24.1",
     "vue": "^3.5.22",
     "vue-router": "^4.6.3"
   },
