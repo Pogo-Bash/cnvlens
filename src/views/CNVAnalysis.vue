@@ -330,8 +330,12 @@ async function runAnalysis() {
   progress.value = { message: 'Starting analysis...', progress: 0, stage: '', chromosome: '' };
 
   try {
-    // Use analysisService instead of cnvAnalyzer directly
-    // This routes to Pyodide (Python) by default with biowasm fallback
+    // Save to OPFS first (for persistence and debugging)
+    progress.value = { message: 'Saving file to storage...', progress: 5, stage: 'saving', chromosome: '' };
+    await opfsManager.writeFile(selectedFile.value.name, selectedFile.value);
+    console.log(`✅ ${selectedFile.value.name} saved to OPFS for persistence`);
+
+    // Now run the analysis (Python will use the in-memory file)
     const analysisResults = await analysisService.analyzeCNV(selectedFile.value, {
       windowSize: windowSize.value,
       chromosome: selectedChromosome.value || null,
