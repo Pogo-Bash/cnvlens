@@ -65,6 +65,6 @@ export default defineConfig({
   },
   
   worker: {
-    format: 'es',
+    format: 'iife', // Use IIFE format for classic workers (required for importScripts)
   },
 })

@@ -11,7 +11,7 @@
     <!-- Header -->
     <div>
       <h1 class="text-4xl font-bold mb-2">Copy Number Variation Analysis</h1>
-      <p class="text-lg text-base-content/70">Detect gene amplifications and deletions in cancer genomes using biowasm</p>
+      <p class="text-lg text-base-content/70">Detect gene amplifications and deletions in cancer genomes using Python + NumPy/SciPy (WASM-powered)</p>
     </div>
 
     <!-- Browser Compatibility Warning -->
@@ -243,7 +243,7 @@
       </svg>
       <div>
         <h3 class="font-bold">Getting Started</h3>
-        <div class="text-sm">Upload a BAM file to detect copy number variations using read depth analysis powered by biowasm.</div>
+        <div class="text-sm">Upload a BAM file to detect copy number variations using Python-based read depth analysis (NumPy + SciPy running in WebAssembly).</div>
       </div>
     </div>
   </div>
