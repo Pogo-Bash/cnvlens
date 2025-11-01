@@ -22,10 +22,11 @@ export function usePyodide() {
 
     isInitializing.value = true;
 
-    // Create worker
+    // Create worker as classic (non-module) worker
+    // This is required because Pyodide uses importScripts()
     worker = new Worker(
-      new URL('../workers/pyodide.worker.js', import.meta.url),
-      { type: 'module' }
+      new URL('../workers/pyodide.worker.js', import.meta.url)
+      // Don't specify type: 'module' - use classic worker for importScripts
     );
 
     // Handle messages from worker

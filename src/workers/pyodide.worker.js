@@ -23,7 +23,8 @@ async function initializePyodide() {
         progress: 10
       });
 
-      // Import Pyodide from our self-hosted version
+      // Import Pyodide using importScripts (classic worker)
+      // This is the standard way to load Pyodide in workers
       importScripts('/pyodide/pyodide.js');
 
       self.postMessage({
