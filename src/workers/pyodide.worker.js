@@ -4,6 +4,10 @@
  * Uses pysam, NumPy, SciPy for genomics analysis
  */
 
+// Log worker type for debugging
+console.log('🔧 Pyodide worker starting...');
+console.log('🔧 Worker type:', typeof importScripts !== 'undefined' ? 'CLASSIC ✅' : 'MODULE ❌');
+
 let pyodide = null;
 let isInitialized = false;
 let initializationPromise = null;
