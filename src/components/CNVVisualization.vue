@@ -149,93 +149,90 @@
         </div>
 
         <!-- Pagination Controls -->
-        <div class="flex justify-between items-center mt-4">
+        <div class="flex flex-col md:flex-row justify-between items-center gap-4 mt-4">
+          <!-- Navigation Buttons -->
           <div class="join">
+            <!-- First Page -->
+            <button
+              class="join-item btn btn-sm"
+              @click="goToPage(1)"
+              :disabled="currentPage === 1"
+              title="First page"
+            >
+              «
+            </button>
+
+            <!-- Previous Page -->
             <button
               class="join-item btn btn-sm"
               @click="previousPage"
               :disabled="currentPage === 1"
+              title="Previous page"
             >
-              « Previous
+              ‹
             </button>
 
-            <!-- Page numbers -->
-            <template v-if="totalPages <= 7">
-              <!-- Show all pages if 7 or fewer -->
-              <button
-                v-for="page in totalPages"
-                :key="page"
-                class="join-item btn btn-sm"
-                :class="{ 'btn-active': page === currentPage }"
-                @click="goToPage(page)"
-              >
-                {{ page }}
-              </button>
-            </template>
-            <template v-else>
-              <!-- Show smart pagination for many pages -->
-              <button
-                class="join-item btn btn-sm"
-                :class="{ 'btn-active': 1 === currentPage }"
-                @click="goToPage(1)"
-              >
-                1
-              </button>
+            <!-- Current Page Info -->
+            <button class="join-item btn btn-sm btn-active pointer-events-none">
+              {{ currentPage }} / {{ totalPages }}
+            </button>
 
-              <button
-                v-if="currentPage > 3"
-                class="join-item btn btn-sm btn-disabled"
-              >
-                ...
-              </button>
-
-              <template v-for="page in [currentPage - 1, currentPage, currentPage + 1]" :key="page">
-                <button
-                  v-if="page > 1 && page < totalPages"
-                  class="join-item btn btn-sm"
-                  :class="{ 'btn-active': page === currentPage }"
-                  @click="goToPage(page)"
-                >
-                  {{ page }}
-                </button>
-              </template>
-
-              <button
-                v-if="currentPage < totalPages - 2"
-                class="join-item btn btn-sm btn-disabled"
-              >
-                ...
-              </button>
-
-              <button
-                class="join-item btn btn-sm"
-                :class="{ 'btn-active': totalPages === currentPage }"
-                @click="goToPage(totalPages)"
-              >
-                {{ totalPages }}
-              </button>
-            </template>
-
+            <!-- Next Page -->
             <button
               class="join-item btn btn-sm"
               @click="nextPage"
               :disabled="currentPage === totalPages"
+              title="Next page"
             >
-              Next »
+              ›
+            </button>
+
+            <!-- Last Page -->
+            <button
+              class="join-item btn btn-sm"
+              @click="goToPage(totalPages)"
+              :disabled="currentPage === totalPages"
+              title="Last page"
+            >
+              »
             </button>
           </div>
 
-          <!-- Jump to page -->
+          <!-- Quick Navigation -->
           <div class="flex items-center gap-2">
-            <span class="text-sm">Jump to page:</span>
-            <input
-              type="number"
-              min="1"
-              :max="totalPages"
-              v-model.number="currentPage"
-              class="input input-bordered input-sm w-20"
-              @input="e => goToPage(parseInt(e.target.value))"
-            />
+            <!-- Skip Back 10 -->
+            <button
+              class="btn btn-sm btn-outline"
+              @click="goToPage(Math.max(1, currentPage - 10))"
+              :disabled="currentPage <= 10"
+              title="Go back 10 pages"
+            >
+              -10
+            </button>
+
+            <!-- Jump to Page Input -->
+            <div class="flex items-center gap-2">
+              <span class="text-sm whitespace-nowrap">Go to:</span>
+              <input
+                type="number"
+                min="1"
+                :max="totalPages"
+                :value="currentPage"
+                @change="e => goToPage(parseInt(e.target.value) || 1)"
+                class="input input-bordered input-sm w-20"
+                placeholder="Page"
+              />
+            </div>
+
+            <!-- Skip Forward 10 -->
+            <button
+              class="btn btn-sm btn-outline"
+              @click="goToPage(Math.min(totalPages, currentPage + 10))"
+              :disabled="currentPage > totalPages - 10"
+              title="Go forward 10 pages"
+            >
+              +10
+            </button>
           </div>
         </div>
       </div>
@@ -330,9 +327,13 @@ const hasActiveFilters = computed(() => {
 
 // Pagination functions
 function goToPage(page) {
-  if (page >= 1 && page <= totalPages.value) {
-    currentPage.value = page;
-  }
+  // Handle invalid inputs
+  const pageNum = parseInt(page);
+  if (isNaN(pageNum)) return;
+
+  // Clamp to valid range
+  const validPage = Math.max(1, Math.min(totalPages.value, pageNum));
+  currentPage.value = validPage;
 }
 
 function nextPage() {
