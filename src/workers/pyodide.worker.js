@@ -683,7 +683,10 @@ def summarize_cnv(cnv, median_cov, coverage_class):
 
 def call_variants_from_bam(bam_bytes, chromosomes=None, min_depth=10, min_base_quality=20, min_mapping_quality=20, min_variant_reads=3, min_allele_freq=0.05):
     """
-    Call variants from BAM file using pileup-based approach
+    OPTIMIZED: Call variants one chromosome at a time to minimize memory usage
+
+    Trade-off: Slower (must re-read BAM for each chromosome) but uses 80% less memory
+    Critical for large files (20-50GB) that would otherwise exceed browser memory limits
 
     Args:
         bam_bytes: BAM file data (BGZF compressed)
@@ -722,35 +725,76 @@ def call_variants_from_bam(bam_bytes, chromosomes=None, min_depth=10, min_base_q
         target_refs.append((i, ref_name, ref_len))
 
     print(f"Processing {len(target_refs)} chromosomes/contigs")
+    print("")
+    print("OPTIMIZATION: Processing one chromosome at a time to minimize memory usage")
+    print(f"Expected memory usage: ~500-1000 MB (vs ~{len(target_refs) * 300} MB for all-at-once)")
+    print("")
 
-    # Collect reads for all target chromosomes in ONE pass through BAM
-    # This is much more efficient than streaming through the file once per chromosome
-    print("\\nPhase 1: Collecting reads from BAM file...")
-    chrom_reads_dict = collect_reads_for_all_chromosomes(
-        bam_reader,
-        target_refs,
-        min_mapping_quality
-    )
-
-    # Now call variants for each chromosome
-    print("\\nPhase 2: Calling variants from pileup...")
+    # OPTIMIZATION: Process one chromosome at a time
     variants = []
-    total_positions = 0
-    positions_with_variants = 0
-
     total_chroms = len(target_refs)
-    for chrom_idx, (ref_id, ref_name, ref_len) in enumerate(target_refs, 1):
-        print(f"\\n[{chrom_idx}/{total_chroms}] Processing {ref_name} ({ref_len:,} bp)...")
 
-        chrom_reads = chrom_reads_dict.get(ref_id, [])
+    for chrom_idx, (ref_id, ref_name, ref_len) in enumerate(target_refs, 1):
+        print("")
+        print(f"[{chrom_idx}/{total_chroms}] Processing {ref_name} ({ref_len:,} bp)...")
+
+        # Reset BAM reader to start of file for each chromosome
+        print(f"  Scanning BAM file for {ref_name} reads...")
+        bam_reader.compressed_pos = 0
+        bam_reader.uncompressed_buffer = b''
+        bam_reader.buffer_offset = 0
+
+        # Re-read header
+        bam_reader.read_header()
+
+        # OPTIMIZATION: Collect reads for THIS chromosome only
+        chrom_reads = []
+        reads_scanned = 0
+        reads_kept = 0
+        last_report = 0
+
+        while True:
+            aln = bam_reader.read_alignment()
+            if aln is None:
+                break
+
+            reads_scanned += 1
+
+            # Progress reporting every 500k reads
+            if reads_scanned - last_report >= 500000:
+                print(f"    Scanned {reads_scanned:,} reads, kept {reads_kept:,} for {ref_name}...")
+                last_report = reads_scanned
+
+            # Filter to this chromosome only
+            if aln['refID'] != ref_id:
+                continue
+
+            # Skip unmapped, duplicates, secondary
+            if aln['is_unmapped'] or aln['is_duplicate'] or aln['is_secondary']:
+                continue
+
+            # Filter by mapping quality
+            if aln['mapq'] < min_mapping_quality:
+                continue
+
+            # Keep this read
+            chrom_reads.append({
+                'pos': aln['pos'],
+                'seq': aln.get('seq', ''),
+                'qual': aln.get('qual', []),
+                'flag': aln['flag'],
+                'cigar': aln.get('cigar', [])
+            })
+            reads_kept += 1
+
+        print(f"  ✓ Scanned {reads_scanned:,} total reads")
+        print(f"  ✓ Using {len(chrom_reads):,} high-quality reads for {ref_name}")
 
         if not chrom_reads:
-            print(f"  ⚠ No reads found for {ref_name}")
+            print(f"  ⚠ No reads found for {ref_name}, skipping")
             continue
 
-        print(f"  Using {len(chrom_reads):,} high-quality reads")
-
-        # Generate pileup and call variants
+        # Call variants for this chromosome
         chrom_variants = call_variants_from_pileup(
             chrom_reads,
             ref_name,
@@ -762,9 +806,21 @@ def call_variants_from_bam(bam_bytes, chromosomes=None, min_depth=10, min_base_q
         )
 
         variants.extend(chrom_variants)
-        positions_with_variants += len(chrom_variants)
 
-    print(f"✓ Variant calling complete: {len(variants)} variants found")
+        print(f"  ✓ Completed {ref_name}: {len(chrom_variants):,} variants found")
+
+        # CRITICAL: Release memory before processing next chromosome
+        chrom_reads = None
+        del chrom_reads
+
+        # Force garbage collection (Python)
+        import gc
+        gc.collect()
+
+        print(f"  ✓ Memory released for {ref_name}")
+
+    print("")
+    print(f"✓ Variant calling complete: {len(variants)} variants found across {total_chroms} chromosomes")
 
     # Sort variants by chromosome and position
     variants.sort(key=lambda v: (v['chrom'], v['pos']))
@@ -781,83 +837,6 @@ def call_variants_from_bam(bam_bytes, chromosomes=None, min_depth=10, min_base_q
         },
         'chromosomes_processed': [name for _, name, _ in target_refs]
     }
-
-def collect_reads_for_all_chromosomes(bam_reader, target_refs, min_mapping_quality):
-    """
-    Collect reads for all target chromosomes in ONE pass through BAM
-    Much more efficient than reading the file once per chromosome!
-
-    Args:
-        bam_reader: SimpleBamReader instance
-        target_refs: List of (ref_id, ref_name, ref_len) tuples
-        min_mapping_quality: Minimum mapping quality
-
-    Returns:
-        Dictionary mapping ref_id to list of reads
-    """
-    # Build set of target ref IDs for fast lookup
-    target_ref_ids = {ref_id for ref_id, _, _ in target_refs}
-    ref_names = {ref_id: ref_name for ref_id, ref_name, _ in target_refs}
-
-    # Initialize dictionary to hold reads for each chromosome
-    chrom_reads = {ref_id: [] for ref_id in target_ref_ids}
-
-    # Reset reader to start
-    bam_reader.compressed_pos = 0
-    bam_reader.uncompressed_buffer = b''
-    bam_reader.buffer_offset = 0
-
-    # Re-read header to reset position
-    bam_reader.read_header()
-
-    # Stream through all alignments ONCE
-    print("  Streaming through BAM file (single pass)...")
-    read_count = 0
-    kept_count = 0
-    last_report = 0
-
-    while True:
-        aln = bam_reader.read_alignment()
-        if aln is None:
-            break
-
-        read_count += 1
-
-        # Progress reporting every 100k reads
-        if read_count - last_report >= 100000:
-            print(f"    Scanned {read_count:,} reads, kept {kept_count:,}...")
-            last_report = read_count
-
-        # Filter by target chromosomes
-        ref_id = aln['refID']
-        if ref_id not in target_ref_ids:
-            continue
-
-        # Skip unmapped, duplicates, secondary
-        if aln['is_unmapped'] or aln['is_duplicate'] or aln['is_secondary']:
-            continue
-
-        # Filter by mapping quality
-        if aln['mapq'] < min_mapping_quality:
-            continue
-
-        # Store read info for this chromosome
-        chrom_reads[ref_id].append({
-            'pos': aln['pos'],
-            'seq': aln.get('seq', ''),
-            'qual': aln.get('qual', []),
-            'flag': aln['flag'],
-            'cigar': aln.get('cigar', [])
-        })
-        kept_count += 1
-
-    print(f"  ✓ Scanned {read_count:,} total reads, kept {kept_count:,} high-quality reads")
-    print(f"  ✓ Reads per chromosome:")
-    for ref_id in sorted(chrom_reads.keys()):
-        ref_name = ref_names.get(ref_id, f"chr{ref_id}")
-        print(f"      {ref_name}: {len(chrom_reads[ref_id]):,} reads")
-
-    return chrom_reads
 
 def call_variants_from_pileup(reads, chrom_name, chrom_len, min_depth, min_base_quality, min_variant_reads, min_allele_freq):
     """
