@@ -74,11 +74,21 @@ const server = createServer(async (req, res) => {
 
     res.setHeader('Content-Type', mimeType);
 
-    // Cache static assets aggressively
-    if (ext === '.js' || ext === '.css' || ext === '.wasm' || ext === '.data') {
+    // Cache static assets based on type
+    if (ext === '.js' || ext === '.css') {
+      // JS/CSS have hashed filenames from Vite - cache forever
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    } else if (ext === '.html') {
+      // HTML should NOT be cached - always fetch fresh
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    } else if (ext === '.wasm' || ext === '.data' || ext === '.zip') {
+      // WASM/Data files - cache for a long time
       res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     } else {
-      res.setHeader('Cache-Control', 'public, max-age=3600');
+      // Other files - short cache
+      res.setHeader('Cache-Control', 'public, max-age=300'); // 5 minutes
     }
 
     res.writeHead(200);
@@ -89,6 +99,10 @@ const server = createServer(async (req, res) => {
       try {
         const indexData = await readFile(join(DIST_DIR, 'index.html'));
         res.setHeader('Content-Type', 'text/html');
+        // Never cache HTML - always serve fresh
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
         res.writeHead(200);
         res.end(indexData);
       } catch (indexErr) {
