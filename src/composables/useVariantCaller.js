@@ -33,56 +33,11 @@ export function useVariantCaller() {
 
     console.log('Variant calling filters:', filters);
 
-    // Call variant calling in worker
-    return new Promise((resolve, reject) => {
-      const messageId = Date.now() + Math.random();
+    // Use the callVariants method from pyodide composable
+    const result = await pyodide.callVariants(bamData, filters);
+    console.log(`✓ Variant calling complete: ${result.total_variants} variants found`);
 
-      const onMessage = (event) => {
-        const { type, id, result, error } = event.data;
-
-        if (id === messageId) {
-          pyodide.worker.value.removeEventListener('message', onMessage);
-
-          if (error) {
-            console.error('Variant calling error:', error);
-            reject(new Error(error));
-          } else if (type === 'call-variants-response') {
-            console.log(`✓ Variant calling complete: ${result.total_variants} variants found`);
-            resolve(result);
-          }
-        }
-
-        // Progress updates
-        if (type === 'variant-calling-progress') {
-          console.log(`Variant calling: ${event.data.message} (${event.data.progress}%)`);
-          if (options.onProgress) {
-            options.onProgress({
-              message: event.data.message,
-              progress: event.data.progress,
-              stage: event.data.stage
-            });
-          }
-        }
-      };
-
-      pyodide.worker.value.addEventListener('message', onMessage);
-
-      // Send variant calling request
-      pyodide.worker.value.postMessage({
-        type: 'call-variants',
-        id: messageId,
-        payload: {
-          fileData: bamData,
-          options: filters
-        }
-      });
-
-      // Timeout after 10 minutes
-      setTimeout(() => {
-        pyodide.worker.value.removeEventListener('message', onMessage);
-        reject(new Error('Variant calling timeout (10 minutes exceeded)'));
-      }, 600000);
-    });
+    return result;
   };
 
   /**
