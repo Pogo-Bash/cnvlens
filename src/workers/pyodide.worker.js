@@ -402,14 +402,19 @@ class SimpleBamReader:
 # Global BAM reader instance
 bam_reader = None
 
-def analyze_bam_coverage(bam_bytes, window_size=10000, chromosome=None, chromosomes=None):
+def analyze_bam_coverage(bam_bytes, window_size=10000, chromosome=None, chromosomes=None,
+                         use_manual_thresholds=False, amp_threshold=None, del_threshold=None, min_windows_override=None):
     """
-    Analyze BAM file and calculate coverage with adaptive thresholds
+    Analyze BAM file and calculate coverage with adaptive OR manual thresholds
     Args:
         bam_bytes: BAM file data
         window_size: Window size in bp
         chromosome: Single chromosome (legacy)
         chromosomes: List of chromosomes for parallel processing
+        use_manual_thresholds: If True, use manual thresholds instead of adaptive
+        amp_threshold: Manual amplification threshold (normalized coverage ratio)
+        del_threshold: Manual deletion threshold (normalized coverage ratio)
+        min_windows_override: Manual minimum windows for CNV calling
     """
     global bam_reader
 
@@ -459,8 +464,13 @@ def analyze_bam_coverage(bam_bytes, window_size=10000, chromosome=None, chromoso
         for w in windows:
             w['normalized'] = w['coverage'] / median_cov if median_cov > 0 else 0
 
-        # Adaptive CNV detection based on coverage
-        cnvs = detect_cnvs_adaptive(windows, coverage_class, median_cov)
+        # Choose detection mode
+        if use_manual_thresholds:
+            print(f"Using MANUAL thresholds: amp={amp_threshold}, del={del_threshold}, min_windows={min_windows_override}")
+            cnvs = detect_cnvs_manual(windows, amp_threshold, del_threshold, min_windows_override, median_cov)
+        else:
+            print("Using ADAPTIVE thresholds based on coverage quality")
+            cnvs = detect_cnvs_adaptive(windows, coverage_class, median_cov)
 
         return {
             'total_reads': total_reads,
@@ -473,6 +483,12 @@ def analyze_bam_coverage(bam_bytes, window_size=10000, chromosome=None, chromoso
                 'median': median_cov,
                 'mean': mean_cov,
                 'class': coverage_class
+            },
+            'thresholds_used': {
+                'mode': 'manual' if use_manual_thresholds else 'adaptive',
+                'amp_threshold': amp_threshold if use_manual_thresholds else None,
+                'del_threshold': del_threshold if use_manual_thresholds else None,
+                'min_windows': min_windows_override if use_manual_thresholds else None
             }
         }
 
@@ -482,6 +498,80 @@ def analyze_bam_coverage(bam_bytes, window_size=10000, chromosome=None, chromoso
             'error': str(e),
             'traceback': traceback.format_exc()
         }
+
+def detect_cnvs_manual(windows, amp_threshold, del_threshold, min_windows, median_cov):
+    """
+    Manual CNV detection with user-specified thresholds
+    """
+    cnvs = []
+    current_cnv = None
+
+    for window in windows:
+        norm_cov = window['normalized']
+
+        is_amp = norm_cov >= amp_threshold
+        is_del = norm_cov <= del_threshold and norm_cov > 0
+
+        if is_amp or is_del:
+            cnv_type = 'amplification' if is_amp else 'deletion'
+
+            if current_cnv and current_cnv['type'] == cnv_type and current_cnv['chromosome'] == window['chromosome']:
+                # Extend current CNV
+                current_cnv['end'] = window['end']
+                current_cnv['windows'].append(window)
+            else:
+                # Start new CNV
+                if current_cnv and len(current_cnv['windows']) >= min_windows:
+                    cnvs.append(summarize_cnv_manual(current_cnv, median_cov))
+
+                current_cnv = {
+                    'chromosome': window['chromosome'],
+                    'start': window['start'],
+                    'end': window['end'],
+                    'type': cnv_type,
+                    'windows': [window]
+                }
+        else:
+            # No CNV, close current if exists
+            if current_cnv and len(current_cnv['windows']) >= min_windows:
+                cnvs.append(summarize_cnv_manual(current_cnv, median_cov))
+                current_cnv = None
+
+    # Close last CNV
+    if current_cnv and len(current_cnv['windows']) >= min_windows:
+        cnvs.append(summarize_cnv_manual(current_cnv, median_cov))
+
+    print(f"Detected {len(cnvs)} CNVs with manual thresholds")
+    return cnvs
+
+def summarize_cnv_manual(cnv, median_cov):
+    """Summarize CNV region with manual thresholds (no adaptive confidence)"""
+    windows = cnv['windows']
+    coverages = [w['coverage'] for w in windows]
+    normalized = [w['normalized'] for w in windows]
+
+    avg_norm = float(np.mean(normalized))
+    std_norm = float(np.std(normalized))
+
+    # Simple confidence based on consistency
+    if len(windows) >= 7 and std_norm < 0.3:
+        confidence = 'high'
+    elif len(windows) >= 3 and std_norm < 0.5:
+        confidence = 'medium'
+    else:
+        confidence = 'low'
+
+    return {
+        'chromosome': cnv['chromosome'],
+        'start': cnv['start'],
+        'end': cnv['end'],
+        'length': cnv['end'] - cnv['start'],
+        'type': cnv['type'],
+        'copyNumber': avg_norm,
+        'avgCoverage': float(np.mean(coverages)),
+        'confidence': confidence,
+        'num_windows': len(windows)
+    }
 
 def detect_cnvs_adaptive(windows, coverage_class, median_cov):
     """
@@ -887,6 +977,12 @@ async function analyzeBamFile(fileData, options = {}) {
     const chromosome = options.chromosome || null;
     const chromosomes = options.chromosomes || null;
 
+    // Manual threshold parameters
+    const useManualThresholds = options.useManualThresholds || false;
+    const ampThreshold = options.ampThreshold || 1.5;
+    const delThreshold = options.delThreshold || 0.5;
+    const minWindows = options.minWindows || 3;
+
     // Send progress updates
     self.postMessage({
       type: 'analysis-progress',
@@ -931,7 +1027,11 @@ bam_bytes = bytes(bam_data_js.to_py())
 result = analyze_bam_coverage(
     bam_bytes,
     window_size=${windowSize},
-    ${chromParam}
+    ${chromParam},
+    use_manual_thresholds=${useManualThresholds ? 'True' : 'False'},
+    amp_threshold=${ampThreshold},
+    del_threshold=${delThreshold},
+    min_windows_override=${minWindows}
 )
 
 # Convert to JSON

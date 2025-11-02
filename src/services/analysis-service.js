@@ -9,7 +9,7 @@ class AnalysisService {
   constructor() {
     this.pyodide = null;
     this.pyodidePool = null;
-    this.useParallelProcessing = true; // Feature flag for multi-threading
+    this.useParallelProcessing = false; // Feature flag for multi-threading (disabled by default)
   }
 
   /**

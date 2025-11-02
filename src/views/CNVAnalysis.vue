@@ -150,6 +150,87 @@
             </div>
           </div>
 
+          <!-- CNV Detection Thresholds -->
+          <div class="divider">CNV Detection Thresholds</div>
+
+          <div class="form-control w-full mb-4">
+            <label class="label cursor-pointer">
+              <span class="label-text font-semibold">Use Manual Thresholds (Recommended)</span>
+              <input type="checkbox" class="toggle toggle-primary" v-model="useManualThresholds" :disabled="analyzing" />
+            </label>
+            <label class="label">
+              <span class="label-text-alt">Uncheck to use automatic adaptive thresholds based on coverage</span>
+            </label>
+          </div>
+
+          <div v-if="useManualThresholds" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- Amplification Threshold -->
+            <div class="form-control w-full">
+              <label class="label">
+                <span class="label-text font-semibold">Amplification Threshold</span>
+              </label>
+              <input
+                type="number"
+                class="input input-bordered w-full"
+                v-model.number="ampThreshold"
+                :disabled="analyzing"
+                step="0.1"
+                min="1.0"
+                max="5.0"
+              />
+              <label class="label">
+                <span class="label-text-alt">Normalized coverage ratio (e.g., 1.5 = 50% above median)</span>
+              </label>
+            </div>
+
+            <!-- Deletion Threshold -->
+            <div class="form-control w-full">
+              <label class="label">
+                <span class="label-text font-semibold">Deletion Threshold</span>
+              </label>
+              <input
+                type="number"
+                class="input input-bordered w-full"
+                v-model.number="delThreshold"
+                :disabled="analyzing"
+                step="0.1"
+                min="0.1"
+                max="0.9"
+              />
+              <label class="label">
+                <span class="label-text-alt">Normalized coverage ratio (e.g., 0.5 = 50% below median)</span>
+              </label>
+            </div>
+
+            <!-- Minimum Windows -->
+            <div class="form-control w-full">
+              <label class="label">
+                <span class="label-text font-semibold">Minimum Consecutive Windows</span>
+              </label>
+              <input
+                type="number"
+                class="input input-bordered w-full"
+                v-model.number="minWindows"
+                :disabled="analyzing"
+                min="1"
+                max="20"
+              />
+              <label class="label">
+                <span class="label-text-alt">Minimum number of windows to call a CNV</span>
+              </label>
+            </div>
+
+            <!-- Reset to Defaults -->
+            <div class="form-control w-full flex items-end">
+              <button class="btn btn-outline btn-sm" @click="resetThresholds" :disabled="analyzing">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Reset to Defaults
+              </button>
+            </div>
+          </div>
+
           <!-- Action Button -->
           <div class="mt-4">
             <button
@@ -346,6 +427,12 @@ const error = ref(null);
 const results = ref(null);
 const storageInfo = ref(null);
 
+// Manual threshold controls (enabled by default)
+const useManualThresholds = ref(true);
+const ampThreshold = ref(1.5);  // 50% above median (original default before adaptive)
+const delThreshold = ref(0.5);  // 50% below median (original default before adaptive)
+const minWindows = ref(3);      // Minimum consecutive windows to call CNV
+
 // Common chromosomes
 const commonChromosomes = [
   'chr1', 'chr2', 'chr3', 'chr4', 'chr5', 'chr6', 'chr7', 'chr8', 'chr9', 'chr10',
@@ -410,6 +497,11 @@ async function runAnalysis() {
     const analysisResults = await analysisService.analyzeCNV(selectedFile.value, {
       windowSize: windowSize.value,
       chromosome: selectedChromosome.value || null,
+      // Pass manual thresholds if enabled
+      useManualThresholds: useManualThresholds.value,
+      ampThreshold: useManualThresholds.value ? ampThreshold.value : null,
+      delThreshold: useManualThresholds.value ? delThreshold.value : null,
+      minWindows: useManualThresholds.value ? minWindows.value : null,
       onProgress: (p) => {
         progress.value = p;
       }
@@ -449,6 +541,14 @@ async function clearStorage() {
     console.error('Failed to clear storage:', err);
     alert('Failed to clear storage: ' + err.message);
   }
+}
+
+function resetThresholds() {
+  // Reset to original default values (before adaptive coverage was added)
+  ampThreshold.value = 1.5;  // 50% above median
+  delThreshold.value = 0.5;  // 50% below median
+  minWindows.value = 3;      // 3 consecutive windows
+  console.log('Thresholds reset to defaults');
 }
 
 function exportAsJSON() {
