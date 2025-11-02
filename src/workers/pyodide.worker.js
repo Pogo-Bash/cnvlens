@@ -388,16 +388,13 @@ bam_reader = None
 
 def analyze_bam_coverage(bam_bytes, window_size=10000, chromosome=None):
     """
-    Analyze BAM file and calculate coverage
-    Returns coverage data and CNV calls
+    Analyze BAM file and calculate coverage with adaptive thresholds
     """
     global bam_reader
 
     try:
-        # Create BAM reader
+        # Create BAM reader and calculate coverage
         bam_reader = SimpleBamReader(bam_bytes)
-
-        # Calculate coverage
         coverage_data, total_reads = bam_reader.calculate_coverage(
             chrom=chromosome,
             window_size=window_size
@@ -415,16 +412,33 @@ def analyze_bam_coverage(bam_bytes, window_size=10000, chromosome=None):
                     'normalized': 0.0
                 })
 
-        # Normalize coverage
-        if windows:
-            coverages = [w['coverage'] for w in windows if w['coverage'] > 0]
-            if coverages:
-                median_cov = float(np.median(coverages))
-                for w in windows:
-                    w['normalized'] = w['coverage'] / median_cov if median_cov > 0 else 0
+        # Calculate median coverage to detect sample quality
+        coverages = [w['coverage'] for w in windows if w['coverage'] > 0]
+        if not coverages:
+            return {'error': 'No coverage data found'}
 
-        # Detect CNVs
-        cnvs = detect_cnvs(windows)
+        median_cov = float(np.median(coverages))
+        mean_cov = float(np.mean(coverages))
+
+        print(f"Coverage stats: median={median_cov:.1f}x, mean={mean_cov:.1f}x")
+
+        # Classify coverage level
+        if median_cov < 15:
+            coverage_class = "low"
+            print("⚠️ LOW COVERAGE DETECTED (<15x)")
+        elif median_cov < 30:
+            coverage_class = "medium"
+            print("📊 MEDIUM COVERAGE (15-30x)")
+        else:
+            coverage_class = "high"
+            print("✅ HIGH COVERAGE (>30x)")
+
+        # Normalize coverage
+        for w in windows:
+            w['normalized'] = w['coverage'] / median_cov if median_cov > 0 else 0
+
+        # Adaptive CNV detection based on coverage
+        cnvs = detect_cnvs_adaptive(windows, coverage_class, median_cov)
 
         return {
             'total_reads': total_reads,
@@ -432,7 +446,12 @@ def analyze_bam_coverage(bam_bytes, window_size=10000, chromosome=None):
             'cnvs': cnvs,
             'windowSize': window_size,
             'chromosomes': list(coverage_data.keys()),
-            'method': 'pyodide-python'
+            'method': 'pyodide-python-streaming',
+            'coverage_stats': {
+                'median': median_cov,
+                'mean': mean_cov,
+                'class': coverage_class
+            }
         }
 
     except Exception as e:
@@ -442,10 +461,33 @@ def analyze_bam_coverage(bam_bytes, window_size=10000, chromosome=None):
             'traceback': traceback.format_exc()
         }
 
-def detect_cnvs(windows, amp_threshold=1.5, del_threshold=0.5):
+def detect_cnvs_adaptive(windows, coverage_class, median_cov):
     """
-    Detect copy number variations from coverage windows
+    Adaptive CNV detection with thresholds based on coverage level
     """
+
+    # Adjust thresholds based on coverage quality
+    if coverage_class == "low":
+        # More permissive thresholds for low coverage
+        amp_threshold = 2.0      # Less strict (was 1.5)
+        del_threshold = 0.3      # More strict (was 0.5)
+        min_windows = 5          # Require longer regions
+        print(f"Using LOW COVERAGE thresholds: amp={amp_threshold}, del={del_threshold}")
+
+    elif coverage_class == "medium":
+        # Standard thresholds
+        amp_threshold = 1.5
+        del_threshold = 0.5
+        min_windows = 3
+        print(f"Using MEDIUM COVERAGE thresholds: amp={amp_threshold}, del={del_threshold}")
+
+    else:  # high coverage
+        # More sensitive detection
+        amp_threshold = 1.3      # More sensitive
+        del_threshold = 0.7      # More sensitive
+        min_windows = 2          # Can be shorter
+        print(f"Using HIGH COVERAGE thresholds: amp={amp_threshold}, del={del_threshold}")
+
     cnvs = []
     current_cnv = None
 
@@ -464,8 +506,8 @@ def detect_cnvs(windows, amp_threshold=1.5, del_threshold=0.5):
                 current_cnv['windows'].append(window)
             else:
                 # Start new CNV
-                if current_cnv:
-                    cnvs.append(summarize_cnv(current_cnv))
+                if current_cnv and len(current_cnv['windows']) >= min_windows:
+                    cnvs.append(summarize_cnv(current_cnv, median_cov, coverage_class))
 
                 current_cnv = {
                     'chromosome': window['chromosome'],
@@ -476,21 +518,53 @@ def detect_cnvs(windows, amp_threshold=1.5, del_threshold=0.5):
                 }
         else:
             # No CNV, close current if exists
-            if current_cnv:
-                cnvs.append(summarize_cnv(current_cnv))
+            if current_cnv and len(current_cnv['windows']) >= min_windows:
+                cnvs.append(summarize_cnv(current_cnv, median_cov, coverage_class))
                 current_cnv = None
 
     # Close last CNV
-    if current_cnv:
-        cnvs.append(summarize_cnv(current_cnv))
+    if current_cnv and len(current_cnv['windows']) >= min_windows:
+        cnvs.append(summarize_cnv(current_cnv, median_cov, coverage_class))
 
+    print(f"Detected {len(cnvs)} CNVs with adaptive thresholds")
     return cnvs
 
-def summarize_cnv(cnv):
-    """Summarize CNV region"""
+def summarize_cnv(cnv, median_cov, coverage_class):
+    """Summarize CNV region with confidence based on coverage"""
     windows = cnv['windows']
     coverages = [w['coverage'] for w in windows]
     normalized = [w['normalized'] for w in windows]
+
+    avg_norm = float(np.mean(normalized))
+    std_norm = float(np.std(normalized))
+
+    # Confidence scoring adapted to coverage level
+    if coverage_class == "low":
+        # More stringent confidence for low coverage
+        if len(windows) >= 10 and std_norm < 0.3:
+            confidence = 'high'
+        elif len(windows) >= 5 and std_norm < 0.5:
+            confidence = 'medium'
+        else:
+            confidence = 'low'
+
+    elif coverage_class == "medium":
+        # Standard confidence
+        if len(windows) >= 7 and std_norm < 0.3:
+            confidence = 'high'
+        elif len(windows) >= 3 and std_norm < 0.5:
+            confidence = 'medium'
+        else:
+            confidence = 'low'
+
+    else:  # high coverage
+        # More lenient confidence (data is more reliable)
+        if len(windows) >= 5 and std_norm < 0.4:
+            confidence = 'high'
+        elif len(windows) >= 2 and std_norm < 0.6:
+            confidence = 'medium'
+        else:
+            confidence = 'low'
 
     return {
         'chromosome': cnv['chromosome'],
@@ -499,8 +573,9 @@ def summarize_cnv(cnv):
         'length': cnv['end'] - cnv['start'],
         'type': cnv['type'],
         'avgCoverage': float(np.mean(coverages)),
-        'copyNumber': float(np.mean(normalized)) * 2,  # Assume diploid
-        'confidence': 'high' if len(windows) >= 10 else ('medium' if len(windows) >= 3 else 'low')
+        'copyNumber': avg_norm * 2,  # Assume diploid
+        'confidence': confidence,
+        'num_windows': len(windows)
     }
 
 def call_variants(bam_bytes, reference_fasta=None, min_coverage=10, min_quality=20):

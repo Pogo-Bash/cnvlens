@@ -230,6 +230,36 @@
         </div>
       </div>
 
+      <!-- Coverage Quality Stats -->
+      <div class="stats shadow w-full mt-6" v-if="results?.coverage_stats">
+        <div class="stat">
+          <div class="stat-title">Coverage Quality</div>
+          <div class="stat-value text-sm" :class="{
+            'text-error': results.coverage_stats.class === 'low',
+            'text-warning': results.coverage_stats.class === 'medium',
+            'text-success': results.coverage_stats.class === 'high'
+          }">
+            {{ results.coverage_stats.class.toUpperCase() }}
+          </div>
+          <div class="stat-desc">{{ results.coverage_stats.median.toFixed(1) }}x median coverage</div>
+        </div>
+
+        <div class="stat">
+          <div class="stat-title">Detection Mode</div>
+          <div class="stat-value text-sm">
+            {{ results.coverage_stats.class === 'low' ? 'Conservative' :
+               results.coverage_stats.class === 'medium' ? 'Standard' : 'Sensitive' }}
+          </div>
+          <div class="stat-desc">Auto-adjusted CNV thresholds</div>
+        </div>
+
+        <div class="stat">
+          <div class="stat-title">Mean Coverage</div>
+          <div class="stat-value text-sm">{{ results.coverage_stats.mean.toFixed(1) }}x</div>
+          <div class="stat-desc">Average across all windows</div>
+        </div>
+      </div>
+
       <!-- Export Options -->
       <div class="card bg-base-100 shadow-xl mt-6">
         <div class="card-body">
