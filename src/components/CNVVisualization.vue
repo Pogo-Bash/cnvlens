@@ -26,7 +26,13 @@
     <!-- CNV Table -->
     <div class="card bg-base-100 shadow-xl" v-if="cnvs && cnvs.length > 0">
       <div class="card-body">
-        <h3 class="card-title">Detected CNVs ({{ cnvs.length }})</h3>
+        <div class="flex justify-between items-center mb-4">
+          <h3 class="card-title">Detected CNVs ({{ cnvs.length }})</h3>
+          <div class="text-sm text-base-content/70">
+            Showing {{ pageInfo }}
+          </div>
+        </div>
+
         <div class="overflow-x-auto">
           <table class="table table-zebra">
             <thead>
@@ -41,7 +47,7 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(cnv, idx) in cnvs" :key="idx">
+              <tr v-for="(cnv, idx) in paginatedCnvs" :key="idx">
                 <td>
                   <span :class="cnv.type === 'amplification' ? 'badge badge-error' : 'badge badge-info'">
                     {{ cnv.type }}
@@ -61,13 +67,104 @@
             </tbody>
           </table>
         </div>
+
+        <!-- Pagination Controls -->
+        <div class="flex justify-between items-center mt-4">
+          <div class="join">
+            <button
+              class="join-item btn btn-sm"
+              @click="previousPage"
+              :disabled="currentPage === 1"
+            >
+              « Previous
+            </button>
+
+            <!-- Page numbers -->
+            <template v-if="totalPages <= 7">
+              <!-- Show all pages if 7 or fewer -->
+              <button
+                v-for="page in totalPages"
+                :key="page"
+                class="join-item btn btn-sm"
+                :class="{ 'btn-active': page === currentPage }"
+                @click="goToPage(page)"
+              >
+                {{ page }}
+              </button>
+            </template>
+            <template v-else>
+              <!-- Show smart pagination for many pages -->
+              <button
+                class="join-item btn btn-sm"
+                :class="{ 'btn-active': 1 === currentPage }"
+                @click="goToPage(1)"
+              >
+                1
+              </button>
+
+              <button
+                v-if="currentPage > 3"
+                class="join-item btn btn-sm btn-disabled"
+              >
+                ...
+              </button>
+
+              <template v-for="page in [currentPage - 1, currentPage, currentPage + 1]" :key="page">
+                <button
+                  v-if="page > 1 && page < totalPages"
+                  class="join-item btn btn-sm"
+                  :class="{ 'btn-active': page === currentPage }"
+                  @click="goToPage(page)"
+                >
+                  {{ page }}
+                </button>
+              </template>
+
+              <button
+                v-if="currentPage < totalPages - 2"
+                class="join-item btn btn-sm btn-disabled"
+              >
+                ...
+              </button>
+
+              <button
+                class="join-item btn btn-sm"
+                :class="{ 'btn-active': totalPages === currentPage }"
+                @click="goToPage(totalPages)"
+              >
+                {{ totalPages }}
+              </button>
+            </template>
+
+            <button
+              class="join-item btn btn-sm"
+              @click="nextPage"
+              :disabled="currentPage === totalPages"
+            >
+              Next »
+            </button>
+          </div>
+
+          <!-- Jump to page -->
+          <div class="flex items-center gap-2">
+            <span class="text-sm">Jump to page:</span>
+            <input
+              type="number"
+              min="1"
+              :max="totalPages"
+              v-model.number="currentPage"
+              class="input input-bordered input-sm w-20"
+              @input="e => goToPage(parseInt(e.target.value))"
+            />
+          </div>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue';
+import { ref, onMounted, watch, computed } from 'vue';
 import * as d3 from 'd3';
 import Plotly from 'plotly.js-dist-min';
 
@@ -88,6 +185,51 @@ const props = defineProps({
 
 const plotlyContainer = ref(null);
 const d3Container = ref(null);
+
+// Pagination state
+const currentPage = ref(1);
+const itemsPerPage = 100;
+
+// Computed properties for pagination
+const totalPages = computed(() => {
+  return Math.ceil(props.cnvs.length / itemsPerPage);
+});
+
+const paginatedCnvs = computed(() => {
+  const start = (currentPage.value - 1) * itemsPerPage;
+  const end = start + itemsPerPage;
+  return props.cnvs.slice(start, end);
+});
+
+const pageInfo = computed(() => {
+  const start = (currentPage.value - 1) * itemsPerPage + 1;
+  const end = Math.min(currentPage.value * itemsPerPage, props.cnvs.length);
+  return `${start}-${end} of ${props.cnvs.length}`;
+});
+
+// Pagination functions
+function goToPage(page) {
+  if (page >= 1 && page <= totalPages.value) {
+    currentPage.value = page;
+  }
+}
+
+function nextPage() {
+  if (currentPage.value < totalPages.value) {
+    currentPage.value++;
+  }
+}
+
+function previousPage() {
+  if (currentPage.value > 1) {
+    currentPage.value--;
+  }
+}
+
+// Reset to page 1 when CNV data changes
+watch(() => props.cnvs, () => {
+  currentPage.value = 1;
+});
 
 onMounted(() => {
   if (props.coverageData.length > 0) {
