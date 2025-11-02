@@ -676,7 +676,7 @@ def call_variants_from_bam(bam_bytes, chromosomes=None, min_depth=10, min_base_q
 
     # Collect reads for all target chromosomes in ONE pass through BAM
     # This is much more efficient than streaming through the file once per chromosome
-    print("\nPhase 1: Collecting reads from BAM file...")
+    print("\\nPhase 1: Collecting reads from BAM file...")
     chrom_reads_dict = collect_reads_for_all_chromosomes(
         bam_reader,
         target_refs,
@@ -684,14 +684,14 @@ def call_variants_from_bam(bam_bytes, chromosomes=None, min_depth=10, min_base_q
     )
 
     # Now call variants for each chromosome
-    print("\nPhase 2: Calling variants from pileup...")
+    print("\\nPhase 2: Calling variants from pileup...")
     variants = []
     total_positions = 0
     positions_with_variants = 0
 
     total_chroms = len(target_refs)
     for chrom_idx, (ref_id, ref_name, ref_len) in enumerate(target_refs, 1):
-        print(f"\n[{chrom_idx}/{total_chroms}] Processing {ref_name} ({ref_len:,} bp)...")
+        print(f"\\n[{chrom_idx}/{total_chroms}] Processing {ref_name} ({ref_len:,} bp)...")
 
         chrom_reads = chrom_reads_dict.get(ref_id, [])
 
