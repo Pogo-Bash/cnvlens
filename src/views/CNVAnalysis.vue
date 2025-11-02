@@ -429,9 +429,9 @@ const storageInfo = ref(null);
 
 // Manual threshold controls (enabled by default)
 const useManualThresholds = ref(true);
-const ampThreshold = ref(1.5);  // 50% above median (original default before adaptive)
-const delThreshold = ref(0.5);  // 50% below median (original default before adaptive)
-const minWindows = ref(3);      // Minimum consecutive windows to call CNV
+const ampThreshold = ref(1.5);  // 50% above median (original default)
+const delThreshold = ref(0.5);  // 50% below median (original default)
+const minWindows = ref(1);      // Minimum consecutive windows (1 = original behavior, no filtering)
 
 // Common chromosomes
 const commonChromosomes = [
@@ -547,7 +547,7 @@ function resetThresholds() {
   // Reset to original default values (before adaptive coverage was added)
   ampThreshold.value = 1.5;  // 50% above median
   delThreshold.value = 0.5;  // 50% below median
-  minWindows.value = 3;      // 3 consecutive windows
+  minWindows.value = 1;      // 1 = no minimum filtering (original behavior)
   console.log('Thresholds reset to defaults');
 }
 
