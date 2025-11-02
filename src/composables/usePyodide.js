@@ -126,6 +126,18 @@ export function usePyodide() {
   };
 
   /**
+   * Call variants from BAM file
+   */
+  const callVariants = async (fileData, options = {}) => {
+    if (!isReady.value) {
+      throw new Error('Pyodide not ready. Please wait for initialization.');
+    }
+
+    const response = await sendMessage('call-variants', { fileData, options });
+    return response.result;
+  };
+
+  /**
    * Run custom Python code
    */
   const runPython = async (code) => {
@@ -180,6 +192,7 @@ export function usePyodide() {
     error,
     initialize,
     analyzeBam,
+    callVariants,
     runPython,
     installPackage,
     checkReady,
