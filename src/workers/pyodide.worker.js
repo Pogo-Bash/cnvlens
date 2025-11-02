@@ -167,18 +167,26 @@ class SimpleBamReader:
     """
 
     def __init__(self, bam_data):
-        """Initialize with BAM file data as bytes"""
-        self.data = bam_data
+        """Initialize with BAM file data as bytes (BGZF compressed)"""
+        # BAM files are BGZF compressed - decompress first!
+        print(f"Decompressing BAM file ({len(bam_data)} bytes)...")
+        try:
+            self.data = gzip.decompress(bam_data)
+            print(f"✓ Decompressed to {len(self.data)} bytes")
+        except Exception as e:
+            print(f"✗ Decompression failed: {e}")
+            raise ValueError(f"Failed to decompress BAM file (BGZF): {e}")
+
         self.pos = 0
         self.references = []
         self.reference_lengths = []
 
     def read_header(self):
         """Read BAM header"""
-        # BAM magic number
+        # BAM magic number (after decompression)
         magic = self.data[0:4]
         if magic != b'BAM\\x01':
-            raise ValueError("Not a valid BAM file")
+            raise ValueError(f"Not a valid BAM file (magic: {magic!r}, expected: b'BAM\\\\x01')")
 
         self.pos = 4
 
