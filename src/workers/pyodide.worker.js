@@ -674,23 +674,32 @@ def call_variants_from_bam(bam_bytes, chromosomes=None, min_depth=10, min_base_q
 
     print(f"Processing {len(target_refs)} chromosomes/contigs")
 
+    # Collect reads for all target chromosomes in ONE pass through BAM
+    # This is much more efficient than streaming through the file once per chromosome
+    print("\nPhase 1: Collecting reads from BAM file...")
+    chrom_reads_dict = collect_reads_for_all_chromosomes(
+        bam_reader,
+        target_refs,
+        min_mapping_quality
+    )
+
+    # Now call variants for each chromosome
+    print("\nPhase 2: Calling variants from pileup...")
     variants = []
     total_positions = 0
     positions_with_variants = 0
 
-    # Generate pileup and call variants
-    # We'll process chromosome by chromosome to manage memory
-    for ref_id, ref_name, ref_len in target_refs:
-        print(f"Processing {ref_name} ({ref_len:,} bp)...")
+    total_chroms = len(target_refs)
+    for chrom_idx, (ref_id, ref_name, ref_len) in enumerate(target_refs, 1):
+        print(f"\n[{chrom_idx}/{total_chroms}] Processing {ref_name} ({ref_len:,} bp)...")
 
-        # Collect reads for this chromosome
-        chrom_reads = collect_reads_for_chromosome(bam_reader, ref_id, ref_name, min_mapping_quality)
+        chrom_reads = chrom_reads_dict.get(ref_id, [])
 
         if not chrom_reads:
-            print(f"  No reads found for {ref_name}")
+            print(f"  ⚠ No reads found for {ref_name}")
             continue
 
-        print(f"  Collected {len(chrom_reads)} high-quality reads")
+        print(f"  Using {len(chrom_reads):,} high-quality reads")
 
         # Generate pileup and call variants
         chrom_variants = call_variants_from_pileup(
@@ -705,8 +714,6 @@ def call_variants_from_bam(bam_bytes, chromosomes=None, min_depth=10, min_base_q
 
         variants.extend(chrom_variants)
         positions_with_variants += len(chrom_variants)
-
-        print(f"  Found {len(chrom_variants)} variants")
 
     print(f"✓ Variant calling complete: {len(variants)} variants found")
 
@@ -726,12 +733,25 @@ def call_variants_from_bam(bam_bytes, chromosomes=None, min_depth=10, min_base_q
         'chromosomes_processed': [name for _, name, _ in target_refs]
     }
 
-def collect_reads_for_chromosome(bam_reader, ref_id, ref_name, min_mapping_quality):
+def collect_reads_for_all_chromosomes(bam_reader, target_refs, min_mapping_quality):
     """
-    Collect all reads mapping to a specific chromosome
-    Returns list of read dictionaries with position, sequence, quality, cigar
+    Collect reads for all target chromosomes in ONE pass through BAM
+    Much more efficient than reading the file once per chromosome!
+
+    Args:
+        bam_reader: SimpleBamReader instance
+        target_refs: List of (ref_id, ref_name, ref_len) tuples
+        min_mapping_quality: Minimum mapping quality
+
+    Returns:
+        Dictionary mapping ref_id to list of reads
     """
-    reads = []
+    # Build set of target ref IDs for fast lookup
+    target_ref_ids = {ref_id for ref_id, _, _ in target_refs}
+    ref_names = {ref_id: ref_name for ref_id, ref_name, _ in target_refs}
+
+    # Initialize dictionary to hold reads for each chromosome
+    chrom_reads = {ref_id: [] for ref_id in target_ref_ids}
 
     # Reset reader to start
     bam_reader.compressed_pos = 0
@@ -741,8 +761,12 @@ def collect_reads_for_chromosome(bam_reader, ref_id, ref_name, min_mapping_quali
     # Re-read header to reset position
     bam_reader.read_header()
 
-    # Stream through all alignments
+    # Stream through all alignments ONCE
+    print("  Streaming through BAM file (single pass)...")
     read_count = 0
+    kept_count = 0
+    last_report = 0
+
     while True:
         aln = bam_reader.read_alignment()
         if aln is None:
@@ -750,8 +774,14 @@ def collect_reads_for_chromosome(bam_reader, ref_id, ref_name, min_mapping_quali
 
         read_count += 1
 
-        # Filter by chromosome
-        if aln['refID'] != ref_id:
+        # Progress reporting every 100k reads
+        if read_count - last_report >= 100000:
+            print(f"    Scanned {read_count:,} reads, kept {kept_count:,}...")
+            last_report = read_count
+
+        # Filter by target chromosomes
+        ref_id = aln['refID']
+        if ref_id not in target_ref_ids:
             continue
 
         # Skip unmapped, duplicates, secondary
@@ -762,16 +792,23 @@ def collect_reads_for_chromosome(bam_reader, ref_id, ref_name, min_mapping_quali
         if aln['mapq'] < min_mapping_quality:
             continue
 
-        # Store read info
-        reads.append({
+        # Store read info for this chromosome
+        chrom_reads[ref_id].append({
             'pos': aln['pos'],
             'seq': aln.get('seq', ''),
             'qual': aln.get('qual', []),
             'flag': aln['flag'],
             'cigar': aln.get('cigar', [])
         })
+        kept_count += 1
 
-    return reads
+    print(f"  ✓ Scanned {read_count:,} total reads, kept {kept_count:,} high-quality reads")
+    print(f"  ✓ Reads per chromosome:")
+    for ref_id in sorted(chrom_reads.keys()):
+        ref_name = ref_names.get(ref_id, f"chr{ref_id}")
+        print(f"      {ref_name}: {len(chrom_reads[ref_id]):,} reads")
+
+    return chrom_reads
 
 def call_variants_from_pileup(reads, chrom_name, chrom_len, min_depth, min_base_quality, min_variant_reads, min_allele_freq):
     """
@@ -784,9 +821,14 @@ def call_variants_from_pileup(reads, chrom_name, chrom_len, min_depth, min_base_
     window_size = 1000000  # 1MB windows
     num_windows = (chrom_len // window_size) + 1
 
+    print(f"  Processing {chrom_name} in {num_windows} windows ({window_size:,}bp each)...")
+
     for window_idx in range(num_windows):
         window_start = window_idx * window_size
         window_end = min(window_start + window_size, chrom_len)
+
+        if window_idx % 10 == 0 and window_idx > 0:
+            print(f"    Processing window {window_idx}/{num_windows} ({window_start:,}-{window_end:,})...")
 
         # Build pileup for this window
         pileup = {}
@@ -876,6 +918,7 @@ def call_variants_from_pileup(reads, chrom_name, chrom_len, min_depth, min_base_
                     'allele_freq': float(allele_freq)
                 })
 
+    print(f"  ✓ Found {len(variants):,} variants in {chrom_name}")
     return variants
 
 print("✓ Python bioinformatics environment ready")
