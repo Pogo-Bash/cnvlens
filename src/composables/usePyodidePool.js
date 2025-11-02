@@ -154,7 +154,7 @@ export function usePyodidePool() {
           if (error) {
             console.error(`Worker ${workerIndex} error:`, error);
             reject(new Error(error));
-          } else if (type === 'analysis-complete') {
+          } else if (type === 'analyze-bam-response') {
             console.log(`✓ Worker ${workerIndex} completed chunk ${chunk.id}`);
             resolve(result);
           }
