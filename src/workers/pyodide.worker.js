@@ -330,17 +330,36 @@ class SimpleBamReader:
             'is_secondary': (flag & 0x100) != 0,
         }
 
-    def calculate_coverage(self, chrom=None, window_size=10000):
-        """Calculate coverage across genome"""
+    def calculate_coverage(self, chrom=None, chroms=None, window_size=10000):
+        """
+        Calculate coverage across genome
+        Args:
+            chrom: Single chromosome to process (legacy)
+            chroms: List of chromosomes to process (for parallel processing)
+            window_size: Window size in bp
+        """
         self.read_header()
+
+        # Build chromosome filter set
+        chrom_filter = None
+        if chroms:
+            chrom_filter = set(chroms)
+            print(f"Processing chromosomes: {', '.join(chroms)}")
+        elif chrom:
+            chrom_filter = {chrom}
+            print(f"Processing chromosome: {chrom}")
 
         # Initialize coverage arrays
         coverage = {}
         for ref_name, ref_len in zip(self.references, self.reference_lengths):
-            if chrom and ref_name != chrom:
+            if chrom_filter and ref_name not in chrom_filter:
                 continue
             num_windows = (ref_len // window_size) + 1
             coverage[ref_name] = np.zeros(num_windows, dtype=np.int32)
+
+        if not coverage:
+            print("⚠️ No matching chromosomes found in BAM file")
+            return {}, 0
 
         # Stream through alignments
         print(f"Streaming through alignments...")
@@ -369,9 +388,6 @@ class SimpleBamReader:
 
             ref_name = self.references[aln['refID']]
 
-            if chrom and ref_name != chrom:
-                continue
-
             if ref_name not in coverage:
                 continue
 
@@ -386,9 +402,14 @@ class SimpleBamReader:
 # Global BAM reader instance
 bam_reader = None
 
-def analyze_bam_coverage(bam_bytes, window_size=10000, chromosome=None):
+def analyze_bam_coverage(bam_bytes, window_size=10000, chromosome=None, chromosomes=None):
     """
     Analyze BAM file and calculate coverage with adaptive thresholds
+    Args:
+        bam_bytes: BAM file data
+        window_size: Window size in bp
+        chromosome: Single chromosome (legacy)
+        chromosomes: List of chromosomes for parallel processing
     """
     global bam_reader
 
@@ -397,6 +418,7 @@ def analyze_bam_coverage(bam_bytes, window_size=10000, chromosome=None):
         bam_reader = SimpleBamReader(bam_bytes)
         coverage_data, total_reads = bam_reader.calculate_coverage(
             chrom=chromosome,
+            chroms=chromosomes,
             window_size=window_size
         )
 
@@ -634,6 +656,7 @@ async function analyzeBamFile(fileData, options = {}) {
   try {
     const windowSize = options.windowSize || 10000;
     const chromosome = options.chromosome || null;
+    const chromosomes = options.chromosomes || null;
 
     // Send progress updates
     self.postMessage({
@@ -649,12 +672,24 @@ async function analyzeBamFile(fileData, options = {}) {
     // Store BAM data in Pyodide memory
     pyodide.globals.set('bam_data_js', bamBytes);
 
+    // Store chromosomes list if provided
+    if (chromosomes) {
+      pyodide.globals.set('chromosomes_js', chromosomes);
+    }
+
     self.postMessage({
       type: 'analysis-progress',
       stage: 'parsing',
       message: 'Parsing BAM header...',
       progress: 30
     });
+
+    // Build Python call with chromosomes parameter
+    const chromParam = chromosomes
+      ? 'chromosomes=list(chromosomes_js.to_py())'
+      : chromosome
+        ? `chromosome='${chromosome}'`
+        : 'chromosome=None';
 
     // Run Python analysis
     const resultJson = await pyodide.runPythonAsync(`
@@ -667,7 +702,7 @@ bam_bytes = bytes(bam_data_js.to_py())
 result = analyze_bam_coverage(
     bam_bytes,
     window_size=${windowSize},
-    chromosome=${chromosome ? `'${chromosome}'` : 'None'}
+    ${chromParam}
 )
 
 # Convert to JSON
@@ -676,6 +711,9 @@ json.dumps(result)
 
     // Clean up
     pyodide.globals.delete('bam_data_js');
+    if (chromosomes) {
+      pyodide.globals.delete('chromosomes_js');
+    }
 
     const result = JSON.parse(resultJson);
 

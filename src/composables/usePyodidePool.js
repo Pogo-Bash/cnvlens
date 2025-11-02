@@ -78,51 +78,78 @@ export function usePyodidePool() {
   };
 
   /**
-   * Split BAM file into chunks for parallel processing
+   * Assign chromosomes to workers for parallel processing
+   * Each worker gets the full BAM file but only processes assigned chromosomes
+   * This avoids the header issue with byte-level chunking
    */
-  const splitBamIntoChunks = (bamData, chunkCount) => {
-    const totalSize = bamData.byteLength;
-    const chunkSize = Math.ceil(totalSize / chunkCount);
-    const chunks = [];
+  const assignChromosomesToWorkers = (workerCount) => {
+    // Common human chromosomes
+    const chromosomes = [
+      'chr1', 'chr2', 'chr3', 'chr4', 'chr5', 'chr6', 'chr7', 'chr8', 'chr9', 'chr10',
+      'chr11', 'chr12', 'chr13', 'chr14', 'chr15', 'chr16', 'chr17', 'chr18', 'chr19',
+      'chr20', 'chr21', 'chr22', 'chrX', 'chrY'
+    ];
 
-    console.log(`Splitting ${(totalSize / 1024 / 1024).toFixed(2)} MB BAM file into ${chunkCount} chunks`);
+    const assignments = [];
+    const chromsPerWorker = Math.ceil(chromosomes.length / workerCount);
 
-    for (let i = 0; i < chunkCount; i++) {
-      const start = i * chunkSize;
-      const end = Math.min(start + chunkSize, totalSize);
+    for (let i = 0; i < workerCount; i++) {
+      const start = i * chromsPerWorker;
+      const end = Math.min(start + chromsPerWorker, chromosomes.length);
+      const assignedChroms = chromosomes.slice(start, end);
 
-      // Create a copy of the chunk (each worker gets its own data)
-      const chunk = bamData.slice(start, end);
-
-      chunks.push({
-        id: i,
-        data: chunk,
-        start,
-        end,
-        size: end - start
-      });
-
-      console.log(`  Chunk ${i}: ${start}-${end} (${((end - start) / 1024 / 1024).toFixed(2)} MB)`);
+      if (assignedChroms.length > 0) {
+        assignments.push({
+          id: i,
+          chromosomes: assignedChroms
+        });
+      }
     }
 
-    return chunks;
+    console.log(`Assigned ${chromosomes.length} chromosomes to ${assignments.length} workers`);
+    assignments.forEach(a => {
+      console.log(`  Worker ${a.id}: ${a.chromosomes.join(', ')}`);
+    });
+
+    return assignments;
   };
 
   /**
    * Process BAM file in parallel across worker pool
+   * Each worker gets the full file but processes different chromosomes
    */
   const analyzeBamParallel = async (bamData, options = {}) => {
     if (!poolReady.value) {
       throw new Error('Worker pool not ready. Call initializePool() first.');
     }
 
-    const chunks = splitBamIntoChunks(bamData, WORKER_COUNT);
+    const fileSizeMB = (bamData.byteLength / 1024 / 1024).toFixed(2);
+    console.log(`📊 Starting parallel BAM analysis (${fileSizeMB} MB) across ${WORKER_COUNT} workers...`);
 
-    console.log(`📊 Starting parallel BAM analysis across ${WORKER_COUNT} workers...`);
+    // If specific chromosome requested, use single-threaded
+    if (options.chromosome) {
+      console.log(`Specific chromosome requested (${options.chromosome}), using single worker`);
+      const result = await processWorker(workers[0].worker, bamData, {
+        ...options,
+        chromosomes: [options.chromosome]
+      }, 0);
+      return formatSingleResult(result, options);
+    }
 
-    // Process each chunk in parallel
-    const processingPromises = chunks.map((chunk, index) => {
-      return processChunk(workers[index].worker, chunk, options, index);
+    // Assign chromosomes to workers
+    const assignments = assignChromosomesToWorkers(WORKER_COUNT);
+
+    // Process each worker's chromosomes in parallel
+    const processingPromises = assignments.map((assignment, index) => {
+      return processWorker(
+        workers[index].worker,
+        bamData,
+        {
+          ...options,
+          chromosomes: assignment.chromosomes
+        },
+        index
+      );
     });
 
     // Wait for all workers to complete
@@ -139,9 +166,9 @@ export function usePyodidePool() {
   };
 
   /**
-   * Process a single chunk on a worker
+   * Process BAM file on a worker with specific chromosome assignments
    */
-  const processChunk = (worker, chunk, options, workerIndex) => {
+  const processWorker = (worker, bamData, options, workerIndex) => {
     return new Promise((resolve, reject) => {
       const messageId = ++nextWorkerId;
 
@@ -155,7 +182,8 @@ export function usePyodidePool() {
             console.error(`Worker ${workerIndex} error:`, error);
             reject(new Error(error));
           } else if (type === 'analyze-bam-response') {
-            console.log(`✓ Worker ${workerIndex} completed chunk ${chunk.id}`);
+            const chromList = options.chromosomes?.join(', ') || 'all';
+            console.log(`✓ Worker ${workerIndex} completed (${chromList})`);
             resolve(result);
           }
         }
@@ -168,26 +196,35 @@ export function usePyodidePool() {
 
       worker.addEventListener('message', onMessage);
 
-      // Send chunk to worker for processing
+      // Send full BAM file to worker with chromosome assignments
       worker.postMessage({
         type: 'analyze-bam',
         id: messageId,
         payload: {
-          fileData: chunk.data,
+          fileData: bamData,
           options: {
             windowSize: options.windowSize || 10000,
-            chromosome: options.chromosome || null,
-            chunkId: chunk.id,
-            totalChunks: WORKER_COUNT
+            chromosome: null, // We'll filter by chromosomes list instead
+            chromosomes: options.chromosomes || null
           }
         }
       });
 
       // Timeout after 5 minutes
       setTimeout(() => {
-        reject(new Error(`Worker ${workerIndex} timeout processing chunk ${chunk.id}`));
+        const chromList = options.chromosomes?.join(', ') || 'all';
+        reject(new Error(`Worker ${workerIndex} timeout processing ${chromList}`));
       }, 300000);
     });
+  };
+
+  /**
+   * Format single result when only one worker is used
+   */
+  const formatSingleResult = (result, options) => {
+    result.method = 'pyodide-python-parallel';
+    result.worker_count = 1;
+    return result;
   };
 
   /**
