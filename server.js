@@ -17,11 +17,11 @@ const __dirname = dirname(__filename);
 const PORT = process.env.PORT || 3000;
 const DIST_DIR = join(__dirname, 'dist');
 
-// MIME types
+// MIME types - Use text/javascript for better worker compatibility
 const MIME_TYPES = {
   '.html': 'text/html',
-  '.js': 'application/javascript',
-  '.mjs': 'application/javascript',
+  '.js': 'text/javascript',      // Changed to text/javascript for worker compatibility
+  '.mjs': 'text/javascript',     // Changed to text/javascript for worker compatibility
   '.css': 'text/css',
   '.json': 'application/json',
   '.wasm': 'application/wasm',
@@ -69,13 +69,30 @@ const server = createServer(async (req, res) => {
 
   try {
     const data = await readFile(fullPath);
-    const ext = extname(filePath);
-    const mimeType = MIME_TYPES[ext] || 'application/octet-stream';
+    const ext = extname(filePath).toLowerCase();
 
+    // Get MIME type - be very explicit for worker files
+    let mimeType = MIME_TYPES[ext];
+
+    // Special handling for worker files - browsers are VERY strict
+    if (filePath.includes('worker') && (ext === '.js' || ext === '.mjs')) {
+      mimeType = 'text/javascript'; // Use text/javascript for maximum compatibility
+      console.log(`[WORKER] Serving worker file: ${filePath} with MIME: ${mimeType}`);
+    }
+
+    // Fallback if no MIME type found
+    if (!mimeType) {
+      mimeType = 'application/octet-stream';
+      console.log(`[WARN] No MIME type for extension '${ext}', using default: ${filePath}`);
+    }
+
+    // ALWAYS set Content-Type - never leave it undefined
     res.setHeader('Content-Type', mimeType);
 
+    console.log(`[${new Date().toISOString()}] 200 ${filePath} (${mimeType})`);
+
     // Cache static assets based on type
-    if (ext === '.js' || ext === '.css') {
+    if (ext === '.js' || ext === '.css' || ext === '.mjs') {
       // JS/CSS have hashed filenames from Vite - cache forever
       res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     } else if (ext === '.html') {
@@ -97,6 +114,7 @@ const server = createServer(async (req, res) => {
     // If file not found and not an asset, serve index.html (SPA routing)
     if (err.code === 'ENOENT' && !extname(filePath)) {
       try {
+        console.log(`[${new Date().toISOString()}] 200 ${filePath} -> /index.html (SPA routing)`);
         const indexData = await readFile(join(DIST_DIR, 'index.html'));
         res.setHeader('Content-Type', 'text/html');
         // Never cache HTML - always serve fresh
@@ -106,10 +124,12 @@ const server = createServer(async (req, res) => {
         res.writeHead(200);
         res.end(indexData);
       } catch (indexErr) {
+        console.error(`[${new Date().toISOString()}] 500 Error serving index.html:`, indexErr);
         res.writeHead(500);
         res.end('Internal Server Error');
       }
     } else {
+      console.error(`[${new Date().toISOString()}] 404 ${filePath} - ${err.message}`);
       res.writeHead(404);
       res.end('Not Found');
     }
