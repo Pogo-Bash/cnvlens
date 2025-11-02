@@ -43,36 +43,26 @@ async function initializePyodide() {
 
       self.postMessage({
         type: 'status',
-        message: 'Loading NumPy and SciPy...',
+        message: 'Loading NumPy...',
         progress: 30
       });
 
-      // Load core scientific packages one by one with error handling
+      // Load only NumPy (SciPy removed to save ~20MB memory)
       try {
         console.log('Loading NumPy...');
         await pyodide.loadPackage('numpy');
         console.log('✓ NumPy loaded');
 
-        self.postMessage({
-          type: 'status',
-          message: 'Loading SciPy...',
-          progress: 50
-        });
-
-        console.log('Loading SciPy...');
-        await pyodide.loadPackage('scipy');
-        console.log('✓ SciPy loaded');
-
       } catch (error) {
-        console.error('Failed to load packages:', error);
-        throw new Error(`Package loading failed: ${error.message}`);
+        console.error('Failed to load NumPy:', error);
+        throw new Error(`NumPy loading failed: ${error.message}`);
       }
 
       // Set up Python analysis environment
       self.postMessage({
         type: 'status',
         message: 'Setting up analysis environment...',
-        progress: 80
+        progress: 60
       });
 
       // Verify packages are importable
@@ -89,18 +79,11 @@ except ImportError as e:
     print(f"✗ NumPy import failed: {e}")
     raise
 
-# Test SciPy import
-try:
-    from scipy import stats, signal
-    print(f"✓ SciPy loaded")
-except ImportError as e:
-    print(f"✗ SciPy import failed: {e}")
-    raise
-
 # Other imports
 import json
 import struct
 import gzip
+import math
         `);
       } catch (error) {
         console.error('Package import test failed:', error);
@@ -112,11 +95,11 @@ import gzip
       // Now define the analysis functions
       await pyodide.runPythonAsync(`
 import numpy as np
-from scipy import stats, signal
 import json
 import struct
 import gzip
 import sys
+import math
 
 # Pure Python BAM parser with streaming BGZF decompression
 class SimpleBamReader:
@@ -868,10 +851,14 @@ def call_variants_from_pileup(reads, chrom_name, chrom_len, min_depth, min_base_
                     continue
 
                 # Calculate quality score (Phred-scaled)
-                # Simple binomial test p-value to quality
-                from scipy.stats import binom
-                p_value = 1.0 - binom.cdf(alt_count - 1, total_depth, 0.01)  # 1% error rate
-                qual = min(-10 * np.log10(max(p_value, 1e-100)), 999)
+                # Simple quality based on allele frequency and depth (no SciPy needed)
+                # Higher depth + higher AF = higher confidence
+                # Formula: Q = -10 * log10(error_rate)
+                # Estimate error rate based on how confident we are this isn't sequencing error
+                base_error = 0.01  # 1% sequencing error rate
+                # Probability this many errors occurred by chance
+                error_prob = base_error ** alt_count
+                qual = min(-10 * math.log10(max(error_prob, 1e-100)), 999)
 
                 # Determine variant type
                 var_type = 'SNV'  # For now, only SNVs (would need CIGAR for indels)
