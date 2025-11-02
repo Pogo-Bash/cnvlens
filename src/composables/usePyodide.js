@@ -103,13 +103,9 @@ export function usePyodide() {
 
       worker.postMessage({ type, id, payload });
 
-      // Timeout after 60 seconds
-      setTimeout(() => {
-        if (pendingMessages.has(id)) {
-          pendingMessages.delete(id);
-          reject(new Error('Worker timeout'));
-        }
-      }, 60000);
+      // No timeout - BAM analysis can take 5-20+ minutes for large files
+      // The worker sends progress updates so user knows it's working
+      // Browser will handle any actual crashes/hangs
     });
   };
 
