@@ -473,6 +473,22 @@ const paginatedVariants = computed(() => {
 // Lifecycle
 onMounted(async () => {
   await refreshStorage();
+
+  // Try to load previous variant results from OPFS
+  try {
+    const exists = await opfsManager.fileExists('variant-results.json');
+    if (exists) {
+      const savedData = await opfsManager.readFile('variant-results.json');
+      const text = await savedData.text();
+      const parsed = JSON.parse(text);
+      results.value = parsed.results;
+      console.log('✓ Loaded previous variant results from OPFS');
+      console.log(`  File: ${parsed.fileName}, Date: ${new Date(parsed.timestamp).toLocaleString()}`);
+    }
+  } catch (err) {
+    console.log('No previous variant results found');
+  }
+
   console.log('Variant Calling view mounted - Pyodide loading in background');
 });
 
@@ -518,6 +534,18 @@ async function runVariantCalling() {
     results.value = variantResults;
     progress.value = { message: 'Complete!', progress: 100, stage: 'complete' };
 
+    // Save results to OPFS for persistence across page navigation
+    try {
+      await opfsManager.writeFile('variant-results.json', JSON.stringify({
+        results: variantResults,
+        timestamp: Date.now(),
+        fileName: selectedFile.value.name
+      }));
+      console.log('✓ Variant results saved to OPFS');
+    } catch (saveErr) {
+      console.error('Failed to save variant results:', saveErr);
+    }
+
     // Refresh storage info
     await refreshStorage();
   } catch (err) {
@@ -543,6 +571,10 @@ async function clearStorage() {
 
   try {
     await opfsManager.clearAll();
+
+    // Also clear variant results from UI
+    results.value = null;
+
     await refreshStorage();
     alert('Storage cleared successfully!');
   } catch (err) {

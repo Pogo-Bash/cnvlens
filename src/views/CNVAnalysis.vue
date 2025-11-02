@@ -453,6 +453,21 @@ const deletionCount = computed(() => {
 onMounted(async () => {
   await refreshStorage();
 
+  // Try to load previous CNV results from OPFS
+  try {
+    const exists = await opfsManager.fileExists('cnv-results.json');
+    if (exists) {
+      const savedData = await opfsManager.readFile('cnv-results.json');
+      const text = await savedData.text();
+      const parsed = JSON.parse(text);
+      results.value = parsed.results;
+      console.log('✓ Loaded previous CNV results from OPFS');
+      console.log(`  File: ${parsed.fileName}, Date: ${new Date(parsed.timestamp).toLocaleString()}`);
+    }
+  } catch (err) {
+    console.log('No previous CNV results found');
+  }
+
   // Initialize analysis service with Pyodide
   analysisService.initialize(pyodide);
 
@@ -510,6 +525,18 @@ async function runAnalysis() {
     results.value = analysisResults;
     progress.value = { message: 'Complete!', progress: 100, stage: 'complete', chromosome: '' };
 
+    // Save results to OPFS for persistence across page navigation
+    try {
+      await opfsManager.writeFile('cnv-results.json', JSON.stringify({
+        results: analysisResults,
+        timestamp: Date.now(),
+        fileName: selectedFile.value.name
+      }));
+      console.log('✓ CNV results saved to OPFS');
+    } catch (saveErr) {
+      console.error('Failed to save CNV results:', saveErr);
+    }
+
     // Refresh storage info
     await refreshStorage();
   } catch (err) {
@@ -535,6 +562,10 @@ async function clearStorage() {
 
   try {
     await opfsManager.clearAll();
+
+    // Also clear CNV results from UI
+    results.value = null;
+
     await refreshStorage();
     alert('Storage cleared successfully!');
   } catch (err) {

@@ -154,7 +154,7 @@
           <div class="join">
             <!-- First Page -->
             <button
-              class="join-item btn btn-sm"
+              class="join-item btn btn-sm px-4"
               @click="goToPage(1)"
               :disabled="currentPage === 1"
               title="First page"
@@ -164,7 +164,7 @@
 
             <!-- Previous Page -->
             <button
-              class="join-item btn btn-sm"
+              class="join-item btn btn-sm px-4"
               @click="previousPage"
               :disabled="currentPage === 1"
               title="Previous page"
@@ -173,13 +173,13 @@
             </button>
 
             <!-- Current Page Info -->
-            <button class="join-item btn btn-sm btn-active pointer-events-none">
+            <button class="join-item btn btn-sm btn-active pointer-events-none px-4">
               {{ currentPage }} / {{ totalPages }}
             </button>
 
             <!-- Next Page -->
             <button
-              class="join-item btn btn-sm"
+              class="join-item btn btn-sm px-4"
               @click="nextPage"
               :disabled="currentPage === totalPages"
               title="Next page"
@@ -189,7 +189,7 @@
 
             <!-- Last Page -->
             <button
-              class="join-item btn btn-sm"
+              class="join-item btn btn-sm px-4"
               @click="goToPage(totalPages)"
               :disabled="currentPage === totalPages"
               title="Last page"
