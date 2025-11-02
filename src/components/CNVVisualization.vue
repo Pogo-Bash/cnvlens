@@ -12,7 +12,14 @@
     <div class="card bg-base-100 shadow-xl">
       <div class="card-body">
         <h3 class="card-title">CNV Overview</h3>
-        <div ref="d3Container" class="w-full" style="min-height: 300px;"></div>
+
+        <!-- Add loading spinner -->
+        <div v-if="!props.cnvs || props.cnvs.length === 0" class="flex items-center justify-center h-96">
+          <span class="loading loading-spinner loading-lg"></span>
+          <span class="ml-4">Preparing visualization...</span>
+        </div>
+
+        <div v-else ref="d3Container" class="w-full" style="min-height: 400px;"></div>
       </div>
     </div>
 
@@ -97,7 +104,12 @@ watch(() => props.coverageData, () => {
 });
 
 function renderPlotly() {
-  if (!plotlyContainer.value || !props.coverageData.length) return;
+  console.log('📈 Starting Plotly Coverage Plot render');
+
+  if (!plotlyContainer.value || !props.coverageData.length) {
+    console.warn('⚠️ Plotly container or coverage data not available');
+    return;
+  }
 
   // Group data by chromosome
   const chromosomeData = {};
@@ -122,8 +134,16 @@ function renderPlotly() {
     };
   });
 
+  // CRITICAL: Limit CNV shapes to prevent browser crash
+  // Filter to high/medium confidence, max 500 shapes
+  const cnvsForShapes = props.cnvs
+    .filter(cnv => cnv.confidence === 'high' || cnv.confidence === 'medium')
+    .slice(0, 500);
+
+  console.log(`📊 Adding ${cnvsForShapes.length} CNV shapes (filtered from ${props.cnvs.length} total)`);
+
   // Add CNV regions as shapes
-  const shapes = props.cnvs.map(cnv => {
+  const shapes = cnvsForShapes.map(cnv => {
     return {
       type: 'rect',
       xref: 'x',
@@ -167,142 +187,180 @@ function renderPlotly() {
 }
 
 function renderD3() {
-  if (!d3Container.value || !props.cnvs.length) return;
+  console.log('🎨 Starting D3 CNV Overview render');
 
-  // Clear previous render
-  d3.select(d3Container.value).selectAll('*').remove();
+  if (!d3Container.value) {
+    console.error('❌ d3Container ref is null');
+    return;
+  }
 
-  const margin = { top: 40, right: 120, bottom: 60, left: 80 };
-  const width = d3Container.value.clientWidth - margin.left - margin.right;
-  const height = 300 - margin.top - margin.bottom;
+  if (!props.cnvs || props.cnvs.length === 0) {
+    console.error('❌ No CNV data available');
+    return;
+  }
 
-  const svg = d3.select(d3Container.value)
-    .append('svg')
-    .attr('width', width + margin.left + margin.right)
-    .attr('height', height + margin.top + margin.bottom)
-    .append('g')
-    .attr('transform', `translate(${margin.left},${margin.top})`);
+  console.log(`📊 Total CNVs: ${props.cnvs.length}`);
 
-  // Group CNVs by chromosome
-  const chromosomes = [...new Set(props.cnvs.map(c => c.chromosome))];
-  const yScale = d3.scaleBand()
-    .domain(chromosomes)
-    .range([0, height])
-    .padding(0.2);
+  // CRITICAL: Limit to prevent browser crash
+  // Only show high/medium confidence CNVs, max 500
+  const cnvsToVisualize = props.cnvs
+    .filter(cnv => cnv.confidence === 'high' || cnv.confidence === 'medium')
+    .slice(0, 500);
 
-  // Find max position for x scale
-  const maxPos = d3.max(props.cnvs, d => d.end);
-  const xScale = d3.scaleLinear()
-    .domain([0, maxPos])
-    .range([0, width]);
+  console.log(`📊 Visualizing ${cnvsToVisualize.length} filtered CNVs`);
 
-  // Color scale
-  const colorScale = d3.scaleOrdinal()
-    .domain(['amplification', 'deletion'])
-    .range(['#ef4444', '#3b82f6']);
+  if (cnvsToVisualize.length === 0) {
+    console.warn('⚠️ No high/medium confidence CNVs to display');
+    return;
+  }
 
-  // Draw CNV rectangles
-  svg.selectAll('.cnv-rect')
-    .data(props.cnvs)
-    .enter()
-    .append('rect')
-    .attr('class', 'cnv-rect')
-    .attr('x', d => xScale(d.start))
-    .attr('y', d => yScale(d.chromosome))
-    .attr('width', d => xScale(d.end) - xScale(d.start))
-    .attr('height', yScale.bandwidth())
-    .attr('fill', d => colorScale(d.type))
-    .attr('opacity', 0.7)
-    .on('mouseover', function(event, d) {
-      d3.select(this).attr('opacity', 1);
+  try {
+    // Clear previous render
+    d3.select(d3Container.value).selectAll('*').remove();
 
-      // Show tooltip
-      const tooltip = d3.select('body').append('div')
-        .attr('class', 'tooltip')
-        .style('position', 'absolute')
-        .style('background', '#1f2937')
-        .style('color', '#fff')
-        .style('padding', '8px')
-        .style('border-radius', '4px')
-        .style('pointer-events', 'none')
-        .style('z-index', '1000')
-        .html(`
-          <strong>${d.type}</strong><br/>
-          ${d.chromosome}:${formatNumber(d.start)}-${formatNumber(d.end)}<br/>
-          Length: ${formatSize(d.length)}<br/>
-          Copy Number: ${d.copyNumber.toFixed(2)}
-        `)
-        .style('left', (event.pageX + 10) + 'px')
-        .style('top', (event.pageY - 10) + 'px');
-    })
-    .on('mouseout', function() {
-      d3.select(this).attr('opacity', 0.7);
-      d3.selectAll('.tooltip').remove();
-    });
+    const margin = { top: 40, right: 120, bottom: 60, left: 80 };
+    const width = d3Container.value.clientWidth - margin.left - margin.right;
+    const height = 300 - margin.top - margin.bottom;
 
-  // Add axes
-  const xAxis = d3.axisBottom(xScale)
-    .tickFormat(d => formatNumber(d));
+    const svg = d3.select(d3Container.value)
+      .append('svg')
+      .attr('width', width + margin.left + margin.right)
+      .attr('height', height + margin.top + margin.bottom)
+      .append('g')
+      .attr('transform', `translate(${margin.left},${margin.top})`);
 
-  svg.append('g')
-    .attr('transform', `translate(0,${height})`)
-    .call(xAxis)
-    .selectAll('text')
-    .style('fill', '#fff');
+    // Group CNVs by chromosome
+    const chromosomes = [...new Set(cnvsToVisualize.map(c => c.chromosome))];
+    const yScale = d3.scaleBand()
+      .domain(chromosomes)
+      .range([0, height])
+      .padding(0.2);
 
-  const yAxis = d3.axisLeft(yScale);
+    // Find max position for x scale
+    const maxPos = d3.max(cnvsToVisualize, d => d.end);
+    const xScale = d3.scaleLinear()
+      .domain([0, maxPos])
+      .range([0, width]);
 
-  svg.append('g')
-    .call(yAxis)
-    .selectAll('text')
-    .style('fill', '#fff');
+    // Color scale
+    const colorScale = d3.scaleOrdinal()
+      .domain(['amplification', 'deletion'])
+      .range(['#ef4444', '#3b82f6']);
 
-  // Add axis labels
-  svg.append('text')
-    .attr('x', width / 2)
-    .attr('y', height + 50)
-    .style('text-anchor', 'middle')
-    .style('fill', '#fff')
-    .text('Genomic Position');
+    // Draw CNV rectangles
+    svg.selectAll('.cnv-rect')
+      .data(cnvsToVisualize)
+      .enter()
+      .append('rect')
+      .attr('class', 'cnv-rect')
+      .attr('x', d => xScale(d.start))
+      .attr('y', d => yScale(d.chromosome))
+      .attr('width', d => xScale(d.end) - xScale(d.start))
+      .attr('height', yScale.bandwidth())
+      .attr('fill', d => colorScale(d.type))
+      .attr('opacity', 0.7)
+      .on('mouseover', function(event, d) {
+        d3.select(this).attr('opacity', 1);
 
-  svg.append('text')
-    .attr('transform', 'rotate(-90)')
-    .attr('x', -height / 2)
-    .attr('y', -60)
-    .style('text-anchor', 'middle')
-    .style('fill', '#fff')
-    .text('Chromosome');
+        // Show tooltip
+        const tooltip = d3.select('body').append('div')
+          .attr('class', 'tooltip')
+          .style('position', 'absolute')
+          .style('background', '#1f2937')
+          .style('color', '#fff')
+          .style('padding', '8px')
+          .style('border-radius', '4px')
+          .style('pointer-events', 'none')
+          .style('z-index', '1000')
+          .html(`
+            <strong>${d.type}</strong><br/>
+            ${d.chromosome}:${formatNumber(d.start)}-${formatNumber(d.end)}<br/>
+            Length: ${formatSize(d.length)}<br/>
+            Copy Number: ${d.copyNumber.toFixed(2)}
+          `)
+          .style('left', (event.pageX + 10) + 'px')
+          .style('top', (event.pageY - 10) + 'px');
+      })
+      .on('mouseout', function() {
+        d3.select(this).attr('opacity', 0.7);
+        d3.selectAll('.tooltip').remove();
+      });
 
-  // Add legend
-  const legend = svg.append('g')
-    .attr('transform', `translate(${width + 20}, 0)`);
+    // Add axes
+    const xAxis = d3.axisBottom(xScale)
+      .tickFormat(d => formatNumber(d));
 
-  const legendData = [
-    { type: 'amplification', label: 'Amplification' },
-    { type: 'deletion', label: 'Deletion' }
-  ];
+    svg.append('g')
+      .attr('transform', `translate(0,${height})`)
+      .call(xAxis)
+      .selectAll('text')
+      .style('fill', '#fff');
 
-  legend.selectAll('.legend-item')
-    .data(legendData)
-    .enter()
-    .append('g')
-    .attr('class', 'legend-item')
-    .attr('transform', (d, i) => `translate(0, ${i * 25})`)
-    .each(function(d) {
-      const g = d3.select(this);
+    const yAxis = d3.axisLeft(yScale);
 
-      g.append('rect')
-        .attr('width', 18)
-        .attr('height', 18)
-        .attr('fill', colorScale(d.type));
+    svg.append('g')
+      .call(yAxis)
+      .selectAll('text')
+      .style('fill', '#fff');
 
-      g.append('text')
-        .attr('x', 24)
-        .attr('y', 14)
-        .style('fill', '#fff')
-        .style('font-size', '12px')
-        .text(d.label);
-    });
+    // Add axis labels
+    svg.append('text')
+      .attr('x', width / 2)
+      .attr('y', height + 50)
+      .style('text-anchor', 'middle')
+      .style('fill', '#fff')
+      .text('Genomic Position');
+
+    svg.append('text')
+      .attr('transform', 'rotate(-90)')
+      .attr('x', -height / 2)
+      .attr('y', -60)
+      .style('text-anchor', 'middle')
+      .style('fill', '#fff')
+      .text('Chromosome');
+
+    // Add legend
+    const legend = svg.append('g')
+      .attr('transform', `translate(${width + 20}, 0)`);
+
+    const legendData = [
+      { type: 'amplification', label: 'Amplification' },
+      { type: 'deletion', label: 'Deletion' }
+    ];
+
+    legend.selectAll('.legend-item')
+      .data(legendData)
+      .enter()
+      .append('g')
+      .attr('class', 'legend-item')
+      .attr('transform', (d, i) => `translate(0, ${i * 25})`)
+      .each(function(d) {
+        const g = d3.select(this);
+
+        g.append('rect')
+          .attr('width', 18)
+          .attr('height', 18)
+          .attr('fill', colorScale(d.type));
+
+        g.append('text')
+          .attr('x', 24)
+          .attr('y', 14)
+          .style('fill', '#fff')
+          .style('font-size', '12px')
+          .text(d.label);
+      });
+
+    console.log('✅ D3 render complete');
+
+  } catch (error) {
+    console.error('❌ D3 rendering failed:', error);
+    // Show error message in the chart area
+    d3.select(d3Container.value)
+      .append('div')
+      .style('padding', '20px')
+      .style('color', 'red')
+      .text(`Failed to render CNV overview: ${error.message}`);
+  }
 }
 
 function formatNumber(num) {
