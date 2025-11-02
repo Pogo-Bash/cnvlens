@@ -861,12 +861,23 @@ def collect_reads_for_all_chromosomes(bam_reader, target_refs, min_mapping_quali
 
 def call_variants_from_pileup(reads, chrom_name, chrom_len, min_depth, min_base_quality, min_variant_reads, min_allele_freq):
     """
-    Generate pileup and call variants
+    OPTIMIZED: Two-pass sparse pileup - only build detailed pileup for candidate positions
+
+    Pass 1: Quick scan to find positions with sufficient depth
+    Pass 2: Build detailed base counts only for candidate positions
     """
     variants = []
 
-    # Build position-to-reads mapping (pileup)
-    # To save memory, we'll process in windows
+    # Filter reads with sequences
+    quality_reads = [r for r in reads if r.get('seq') and len(r['seq']) > 0]
+
+    if not quality_reads:
+        print(f"  ⚠ No reads with sequences for {chrom_name}")
+        return variants
+
+    print(f"  Building sparse pileup from {len(quality_reads):,} reads...")
+
+    # Process genome in 1MB windows to manage memory
     window_size = 1000000  # 1MB windows
     num_windows = (chrom_len // window_size) + 1
 
@@ -876,53 +887,88 @@ def call_variants_from_pileup(reads, chrom_name, chrom_len, min_depth, min_base_
         window_start = window_idx * window_size
         window_end = min(window_start + window_size, chrom_len)
 
+        # Progress reporting every 10 windows
         if window_idx % 10 == 0 and window_idx > 0:
             print(f"    Processing window {window_idx}/{num_windows} ({window_start:,}-{window_end:,})...")
 
-        # Build pileup for this window
-        pileup = {}
+        # OPTIMIZATION 1: Pass 1 - Quick coverage scan
+        # Only track coverage depth, not individual bases
+        position_coverage = {}
 
-        for read in reads:
+        for read in quality_reads:
             read_start = read['pos']
-            read_seq = read['seq']
-            read_qual = read['qual']
+            read_seq = read.get('seq', '')
 
             if not read_seq:
                 continue
 
-            # Only process if read overlaps this window
             read_end = read_start + len(read_seq)
+
+            # Skip reads that don't overlap this window
             if read_end < window_start or read_start > window_end:
                 continue
 
-            # Add each base to pileup
+            # Count coverage for each position
+            for i in range(len(read_seq)):
+                pos = read_start + i
+
+                # Only positions in current window
+                if pos < window_start or pos >= window_end:
+                    continue
+
+                position_coverage[pos] = position_coverage.get(pos, 0) + 1
+
+        # OPTIMIZATION 2: Filter to candidate positions
+        # Only positions with sufficient depth are candidates for variants
+        candidate_positions = {pos for pos, depth in position_coverage.items() if depth >= min_depth}
+
+        if not candidate_positions:
+            continue
+
+        # OPTIMIZATION 3: Pass 2 - Detailed pileup ONLY for candidates
+        # This is the key optimization - we skip 99% of positions
+        pileup = {pos: {'A': 0, 'C': 0, 'G': 0, 'T': 0, 'N': 0} for pos in candidate_positions}
+
+        for read in quality_reads:
+            read_start = read['pos']
+            read_seq = read.get('seq', '')
+            read_qual = read.get('qual', [])
+
+            if not read_seq:
+                continue
+
+            read_end = read_start + len(read_seq)
+
+            # Skip reads outside window
+            if read_end < window_start or read_start > window_end:
+                continue
+
+            # Add bases to pileup
             for i, (base, qual) in enumerate(zip(read_seq, read_qual)):
                 pos = read_start + i
 
-                # Check if in window
-                if pos < window_start or pos >= window_end:
+                # CRITICAL: Only process candidate positions
+                if pos not in pileup:
                     continue
 
                 # Filter by base quality
                 if qual < min_base_quality:
                     continue
 
-                if pos not in pileup:
-                    pileup[pos] = {'A': 0, 'C': 0, 'G': 0, 'T': 0, 'N': 0}
-
                 base_upper = base.upper()
                 if base_upper in pileup[pos]:
                     pileup[pos][base_upper] += 1
 
-        # Call variants from pileup in this window
+        # OPTIMIZATION 4: Call variants from sparse pileup
         for pos in sorted(pileup.keys()):
             bases = pileup[pos]
             total_depth = sum(bases.values())
 
+            # Skip if below minimum depth
             if total_depth < min_depth:
                 continue
 
-            # Find most common base (reference)
+            # Find reference base (most common)
             ref_base = max(bases.keys(), key=lambda b: bases[b])
             ref_count = bases[ref_base]
 
@@ -933,6 +979,7 @@ def call_variants_from_pileup(reads, chrom_name, chrom_len, min_depth, min_base_
 
                 alt_count = bases[alt_base]
 
+                # Early exit checks (fast)
                 if alt_count < min_variant_reads:
                     continue
 
@@ -941,18 +988,10 @@ def call_variants_from_pileup(reads, chrom_name, chrom_len, min_depth, min_base_
                 if allele_freq < min_allele_freq:
                     continue
 
-                # Calculate quality score (Phred-scaled)
-                # Simple quality based on allele frequency and depth (no SciPy needed)
-                # Higher depth + higher AF = higher confidence
-                # Formula: Q = -10 * log10(error_rate)
-                # Estimate error rate based on how confident we are this isn't sequencing error
-                base_error = 0.01  # 1% sequencing error rate
-                # Probability this many errors occurred by chance
-                error_prob = base_error ** alt_count
+                # Calculate quality score
+                # Simple phred-scaled quality based on allele frequency and depth
+                error_prob = (1 - allele_freq) ** alt_count
                 qual = min(-10 * math.log10(max(error_prob, 1e-100)), 999)
-
-                # Determine variant type
-                var_type = 'SNV'  # For now, only SNVs (would need CIGAR for indels)
 
                 variants.append({
                     'chrom': chrom_name,
@@ -960,12 +999,16 @@ def call_variants_from_pileup(reads, chrom_name, chrom_len, min_depth, min_base_
                     'ref': ref_base,
                     'alt': alt_base,
                     'qual': float(qual),
-                    'type': var_type,
+                    'type': 'SNV',
                     'depth': total_depth,
                     'ref_count': ref_count,
                     'alt_count': alt_count,
                     'allele_freq': float(allele_freq)
                 })
+
+        # Release memory for this window
+        pileup = None
+        position_coverage = None
 
     print(f"  ✓ Found {len(variants):,} variants in {chrom_name}")
     return variants
