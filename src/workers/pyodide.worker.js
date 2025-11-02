@@ -253,12 +253,59 @@ class SimpleBamReader:
 
         bin_mq_nl = struct.unpack('<I', core_data[8:12])[0]
         mapq = (bin_mq_nl >> 8) & 0xFF
+        l_read_name = bin_mq_nl & 0xFF
 
         flag_nc = struct.unpack('<I', core_data[12:16])[0]
         flag = flag_nc >> 16
+        n_cigar_op = flag_nc & 0xFFFF
 
-        # Skip rest of record (variable length data)
-        remaining = block_size - 32
+        l_seq = struct.unpack('<I', core_data[16:20])[0]
+
+        # Parse variable-length data section
+        # 1. Read name (skip it)
+        read_name_data = self.read_bytes(l_read_name)
+        if read_name_data is None:
+            return None
+
+        # 2. CIGAR (skip it)
+        cigar_bytes = n_cigar_op * 4
+        cigar_data = self.read_bytes(cigar_bytes)
+        if cigar_data is None and cigar_bytes > 0:
+            return None
+
+        # 3. Sequence (decode it - needed for variant calling!)
+        seq_bytes = (l_seq + 1) // 2  # 4 bits per base, 2 bases per byte
+        seq_data = self.read_bytes(seq_bytes)
+
+        seq = ''
+        if seq_data and l_seq > 0:
+            # BAM base encoding: =ACMGRSVTWYHKDBN (values 0-15)
+            seq_lookup = '=ACMGRSVTWYHKDBN'
+            for i in range(l_seq):
+                byte_idx = i // 2
+                if byte_idx < len(seq_data):
+                    byte_val = seq_data[byte_idx]
+                    # Each byte has 2 bases: high nibble (first base), low nibble (second base)
+                    if i % 2 == 0:
+                        # First base in byte (high nibble)
+                        base_idx = (byte_val >> 4) & 0xF
+                    else:
+                        # Second base in byte (low nibble)
+                        base_idx = byte_val & 0xF
+                    seq += seq_lookup[base_idx]
+
+        # 4. Quality scores (extract them - needed for variant calling!)
+        qual_data = self.read_bytes(l_seq)
+
+        qual = []
+        if qual_data and l_seq > 0:
+            # Quality scores are stored as Phred+33 ASCII values
+            # Convert to numeric Phred scores
+            qual = [q for q in qual_data]
+
+        # Skip any remaining auxiliary data (tags)
+        bytes_read = 32 + l_read_name + cigar_bytes + seq_bytes + l_seq
+        remaining = block_size - bytes_read
         if remaining > 0:
             self.read_bytes(remaining)
 
@@ -267,6 +314,8 @@ class SimpleBamReader:
             'pos': pos,
             'mapq': mapq,
             'flag': flag,
+            'seq': seq,
+            'qual': qual,
             'is_unmapped': (flag & 0x4) != 0,
             'is_duplicate': (flag & 0x400) != 0,
             'is_secondary': (flag & 0x100) != 0,
