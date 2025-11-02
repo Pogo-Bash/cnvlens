@@ -49,64 +49,23 @@ async function initializePyodide() {
 
       // Load core scientific packages one by one with error handling
       try {
+        console.log('Loading NumPy...');
         await pyodide.loadPackage('numpy');
         console.log('✓ NumPy loaded');
 
         self.postMessage({
           type: 'status',
           message: 'Loading SciPy...',
-          progress: 40
+          progress: 50
         });
 
+        console.log('Loading SciPy...');
         await pyodide.loadPackage('scipy');
         console.log('✓ SciPy loaded');
 
-        self.postMessage({
-          type: 'status',
-          message: 'Loading micropip...',
-          progress: 45
-        });
-
-        await pyodide.loadPackage('micropip');
-        console.log('✓ micropip loaded');
       } catch (error) {
         console.error('Failed to load packages:', error);
         throw new Error(`Package loading failed: ${error.message}`);
-      }
-
-      self.postMessage({
-        type: 'status',
-        message: 'Installing bioinformatics packages...',
-        progress: 50
-      });
-
-      // Install pysam via micropip (if available)
-      // Note: pysam may not be available in Pyodide, so we'll use a pure Python alternative
-      try {
-        const micropip = pyodide.pyimport('micropip');
-
-        // Try to install pysam
-        self.postMessage({
-          type: 'status',
-          message: 'Installing pysam (BAM/SAM handler)...',
-          progress: 60
-        });
-
-        await micropip.install('pysam');
-
-        self.postMessage({
-          type: 'status',
-          message: 'pysam installed successfully!',
-          progress: 70
-        });
-      } catch (error) {
-        console.warn('pysam not available in Pyodide, will use pure Python BAM parser:', error);
-
-        self.postMessage({
-          type: 'status',
-          message: 'Using pure Python BAM parser...',
-          progress: 70
-        });
       }
 
       // Set up Python analysis environment
@@ -952,11 +911,19 @@ print("✓ Python bioinformatics environment ready")
       return pyodide;
 
     } catch (error) {
+      const errorMessage = error?.message || error?.toString() || 'Unknown initialization error';
+      const errorStack = error?.stack || '';
+
+      console.error('Pyodide initialization failed:', error);
+      console.error('Error details:', { message: errorMessage, stack: errorStack });
+
       self.postMessage({
         type: 'error',
-        error: error.message,
-        stack: error.stack
+        error: errorMessage,
+        stack: errorStack,
+        details: String(error)
       });
+
       throw error;
     }
   })();
