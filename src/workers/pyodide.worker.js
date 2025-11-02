@@ -600,18 +600,247 @@ def summarize_cnv(cnv, median_cov, coverage_class):
         'num_windows': len(windows)
     }
 
-def call_variants(bam_bytes, reference_fasta=None, min_coverage=10, min_quality=20):
+def call_variants_from_bam(bam_bytes, chromosomes=None, min_depth=10, min_base_quality=20, min_mapping_quality=20, min_variant_reads=3, min_allele_freq=0.05):
     """
-    Simple variant calling from BAM file
-    This is a basic implementation - for production use GATK or similar
+    Call variants from BAM file using pileup-based approach
+
+    Args:
+        bam_bytes: BAM file data (BGZF compressed)
+        chromosomes: List of chromosomes to process (None = all)
+        min_depth: Minimum read depth at position
+        min_base_quality: Minimum base quality score (Phred)
+        min_mapping_quality: Minimum mapping quality
+        min_variant_reads: Minimum number of reads supporting variant
+        min_allele_freq: Minimum variant allele frequency (0-1)
+
+    Returns:
+        Dictionary with variants array and metadata
     """
-    # TODO: Implement full variant calling pipeline
-    # For now, return placeholder
+    print(f"Starting variant calling with filters:")
+    print(f"  Min depth: {min_depth}")
+    print(f"  Min base quality: {min_base_quality}")
+    print(f"  Min mapping quality: {min_mapping_quality}")
+    print(f"  Min variant reads: {min_variant_reads}")
+    print(f"  Min allele frequency: {min_allele_freq}")
+
+    # Create BAM reader
+    bam_reader = SimpleBamReader(bam_bytes)
+    bam_reader.read_header()
+
+    # Build chromosome filter
+    chrom_filter = None
+    if chromosomes:
+        chrom_filter = set(chromosomes)
+        print(f"Processing chromosomes: {', '.join(chromosomes)}")
+
+    # Filter references
+    target_refs = []
+    for i, (ref_name, ref_len) in enumerate(zip(bam_reader.references, bam_reader.reference_lengths)):
+        if chrom_filter and ref_name not in chrom_filter:
+            continue
+        target_refs.append((i, ref_name, ref_len))
+
+    print(f"Processing {len(target_refs)} chromosomes/contigs")
+
+    variants = []
+    total_positions = 0
+    positions_with_variants = 0
+
+    # Generate pileup and call variants
+    # We'll process chromosome by chromosome to manage memory
+    for ref_id, ref_name, ref_len in target_refs:
+        print(f"Processing {ref_name} ({ref_len:,} bp)...")
+
+        # Collect reads for this chromosome
+        chrom_reads = collect_reads_for_chromosome(bam_reader, ref_id, ref_name, min_mapping_quality)
+
+        if not chrom_reads:
+            print(f"  No reads found for {ref_name}")
+            continue
+
+        print(f"  Collected {len(chrom_reads)} high-quality reads")
+
+        # Generate pileup and call variants
+        chrom_variants = call_variants_from_pileup(
+            chrom_reads,
+            ref_name,
+            ref_len,
+            min_depth,
+            min_base_quality,
+            min_variant_reads,
+            min_allele_freq
+        )
+
+        variants.extend(chrom_variants)
+        positions_with_variants += len(chrom_variants)
+
+        print(f"  Found {len(chrom_variants)} variants")
+
+    print(f"✓ Variant calling complete: {len(variants)} variants found")
+
+    # Sort variants by chromosome and position
+    variants.sort(key=lambda v: (v['chrom'], v['pos']))
+
     return {
-        'variants': [],
-        'note': 'Full variant calling pipeline coming soon',
-        'status': 'placeholder'
+        'variants': variants,
+        'total_variants': len(variants),
+        'filters': {
+            'min_depth': min_depth,
+            'min_base_quality': min_base_quality,
+            'min_mapping_quality': min_mapping_quality,
+            'min_variant_reads': min_variant_reads,
+            'min_allele_freq': min_allele_freq
+        },
+        'chromosomes_processed': [name for _, name, _ in target_refs]
     }
+
+def collect_reads_for_chromosome(bam_reader, ref_id, ref_name, min_mapping_quality):
+    """
+    Collect all reads mapping to a specific chromosome
+    Returns list of read dictionaries with position, sequence, quality, cigar
+    """
+    reads = []
+
+    # Reset reader to start
+    bam_reader.compressed_pos = 0
+    bam_reader.uncompressed_buffer = b''
+    bam_reader.buffer_offset = 0
+
+    # Re-read header to reset position
+    bam_reader.read_header()
+
+    # Stream through all alignments
+    read_count = 0
+    while True:
+        aln = bam_reader.read_alignment()
+        if aln is None:
+            break
+
+        read_count += 1
+
+        # Filter by chromosome
+        if aln['refID'] != ref_id:
+            continue
+
+        # Skip unmapped, duplicates, secondary
+        if aln['is_unmapped'] or aln['is_duplicate'] or aln['is_secondary']:
+            continue
+
+        # Filter by mapping quality
+        if aln['mapq'] < min_mapping_quality:
+            continue
+
+        # Store read info
+        reads.append({
+            'pos': aln['pos'],
+            'seq': aln.get('seq', ''),
+            'qual': aln.get('qual', []),
+            'flag': aln['flag'],
+            'cigar': aln.get('cigar', [])
+        })
+
+    return reads
+
+def call_variants_from_pileup(reads, chrom_name, chrom_len, min_depth, min_base_quality, min_variant_reads, min_allele_freq):
+    """
+    Generate pileup and call variants
+    """
+    variants = []
+
+    # Build position-to-reads mapping (pileup)
+    # To save memory, we'll process in windows
+    window_size = 1000000  # 1MB windows
+    num_windows = (chrom_len // window_size) + 1
+
+    for window_idx in range(num_windows):
+        window_start = window_idx * window_size
+        window_end = min(window_start + window_size, chrom_len)
+
+        # Build pileup for this window
+        pileup = {}
+
+        for read in reads:
+            read_start = read['pos']
+            read_seq = read['seq']
+            read_qual = read['qual']
+
+            if not read_seq:
+                continue
+
+            # Only process if read overlaps this window
+            read_end = read_start + len(read_seq)
+            if read_end < window_start or read_start > window_end:
+                continue
+
+            # Add each base to pileup
+            for i, (base, qual) in enumerate(zip(read_seq, read_qual)):
+                pos = read_start + i
+
+                # Check if in window
+                if pos < window_start or pos >= window_end:
+                    continue
+
+                # Filter by base quality
+                if qual < min_base_quality:
+                    continue
+
+                if pos not in pileup:
+                    pileup[pos] = {'A': 0, 'C': 0, 'G': 0, 'T': 0, 'N': 0}
+
+                base_upper = base.upper()
+                if base_upper in pileup[pos]:
+                    pileup[pos][base_upper] += 1
+
+        # Call variants from pileup in this window
+        for pos in sorted(pileup.keys()):
+            bases = pileup[pos]
+            total_depth = sum(bases.values())
+
+            if total_depth < min_depth:
+                continue
+
+            # Find most common base (reference)
+            ref_base = max(bases.keys(), key=lambda b: bases[b])
+            ref_count = bases[ref_base]
+
+            # Check each alternate base
+            for alt_base in ['A', 'C', 'G', 'T']:
+                if alt_base == ref_base or alt_base == 'N':
+                    continue
+
+                alt_count = bases[alt_base]
+
+                if alt_count < min_variant_reads:
+                    continue
+
+                allele_freq = alt_count / total_depth
+
+                if allele_freq < min_allele_freq:
+                    continue
+
+                # Calculate quality score (Phred-scaled)
+                # Simple binomial test p-value to quality
+                from scipy.stats import binom
+                p_value = 1.0 - binom.cdf(alt_count - 1, total_depth, 0.01)  # 1% error rate
+                qual = min(-10 * np.log10(max(p_value, 1e-100)), 999)
+
+                # Determine variant type
+                var_type = 'SNV'  # For now, only SNVs (would need CIGAR for indels)
+
+                variants.append({
+                    'chrom': chrom_name,
+                    'pos': pos + 1,  # VCF is 1-based
+                    'ref': ref_base,
+                    'alt': alt_base,
+                    'qual': float(qual),
+                    'type': var_type,
+                    'depth': total_depth,
+                    'ref_count': ref_count,
+                    'alt_count': alt_count,
+                    'allele_freq': float(allele_freq)
+                })
+
+    return variants
 
 print("✓ Python bioinformatics environment ready")
       `);
@@ -736,6 +965,101 @@ json.dumps(result)
 }
 
 /**
+ * Call variants from BAM file using Python pileup-based approach
+ */
+async function callVariants(fileData, options = {}) {
+  if (!isInitialized) {
+    await initializePyodide();
+  }
+
+  try {
+    const chromosomes = options.chromosomes || null;
+    const minDepth = options.minDepth || 10;
+    const minBaseQuality = options.minBaseQuality || 20;
+    const minMappingQuality = options.minMappingQuality || 20;
+    const minVariantReads = options.minVariantReads || 3;
+    const minAlleleFreq = options.minAlleleFreq || 0.05;
+
+    // Send progress updates
+    self.postMessage({
+      type: 'variant-calling-progress',
+      stage: 'loading',
+      message: 'Loading BAM file into Python...',
+      progress: 10
+    });
+
+    // Convert ArrayBuffer to Uint8Array for Python
+    const bamBytes = new Uint8Array(fileData);
+
+    // Store BAM data in Pyodide memory
+    pyodide.globals.set('bam_data_js', bamBytes);
+
+    // Store chromosomes list if provided
+    if (chromosomes) {
+      pyodide.globals.set('chromosomes_js', chromosomes);
+    }
+
+    self.postMessage({
+      type: 'variant-calling-progress',
+      stage: 'parsing',
+      message: 'Parsing BAM and generating pileup...',
+      progress: 30
+    });
+
+    // Build Python call with parameters
+    const chromParam = chromosomes
+      ? 'chromosomes=list(chromosomes_js.to_py())'
+      : 'chromosomes=None';
+
+    // Run Python variant calling
+    const resultJson = await pyodide.runPythonAsync(`
+import json
+
+# Get BAM data from JavaScript
+bam_bytes = bytes(bam_data_js.to_py())
+
+# Run variant calling
+result = call_variants_from_bam(
+    bam_bytes,
+    ${chromParam},
+    min_depth=${minDepth},
+    min_base_quality=${minBaseQuality},
+    min_mapping_quality=${minMappingQuality},
+    min_variant_reads=${minVariantReads},
+    min_allele_freq=${minAlleleFreq}
+)
+
+# Convert to JSON
+json.dumps(result)
+    `);
+
+    // Clean up
+    pyodide.globals.delete('bam_data_js');
+    if (chromosomes) {
+      pyodide.globals.delete('chromosomes_js');
+    }
+
+    const result = JSON.parse(resultJson);
+
+    if (result.error) {
+      throw new Error(result.error + '\n' + (result.traceback || ''));
+    }
+
+    self.postMessage({
+      type: 'variant-calling-progress',
+      stage: 'complete',
+      message: 'Variant calling complete!',
+      progress: 100
+    });
+
+    return result;
+
+  } catch (error) {
+    throw new Error(`Variant calling failed: ${error.message}`);
+  }
+}
+
+/**
  * Run custom Python code
  */
 async function runPythonCode(code) {
@@ -804,6 +1128,15 @@ self.onmessage = async (event) => {
           type: 'analyze-bam-response',
           id,
           result
+        });
+        break;
+
+      case 'call-variants':
+        const variantResult = await callVariants(payload.fileData, payload.options);
+        self.postMessage({
+          type: 'call-variants-response',
+          id,
+          result: variantResult
         });
         break;
 
