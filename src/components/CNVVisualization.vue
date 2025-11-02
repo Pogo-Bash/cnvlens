@@ -26,7 +26,93 @@
     <!-- CNV Table -->
     <div class="card bg-base-100 shadow-xl" v-if="cnvs && cnvs.length > 0">
       <div class="card-body">
-        <h3 class="card-title">Detected CNVs ({{ cnvs.length }})</h3>
+        <!-- Header with counts -->
+        <div class="flex justify-between items-center mb-4">
+          <h3 class="card-title">
+            Detected CNVs ({{ cnvs.length }})
+            <span v-if="hasActiveFilters" class="badge badge-primary ml-2">
+              {{ filteredCnvs.length }} filtered
+            </span>
+          </h3>
+          <div class="text-sm text-base-content/70">
+            Showing {{ pageInfo }}
+          </div>
+        </div>
+
+        <!-- Filter Controls -->
+        <div class="bg-base-200 rounded-lg p-4 mb-4">
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <!-- Type Filter -->
+            <div class="form-control">
+              <label class="label">
+                <span class="label-text font-semibold">Type</span>
+              </label>
+              <select v-model="filterType" class="select select-bordered select-sm w-full">
+                <option value="all">All Types</option>
+                <option value="amplification">Amplification</option>
+                <option value="deletion">Deletion</option>
+              </select>
+            </div>
+
+            <!-- Chromosome Filter -->
+            <div class="form-control">
+              <label class="label">
+                <span class="label-text font-semibold">Chromosome</span>
+              </label>
+              <select v-model="filterChromosome" class="select select-bordered select-sm w-full">
+                <option value="all">All Chromosomes</option>
+                <option v-for="chr in uniqueChromosomes" :key="chr" :value="chr">
+                  {{ chr }}
+                </option>
+              </select>
+            </div>
+
+            <!-- Confidence Filter -->
+            <div class="form-control">
+              <label class="label">
+                <span class="label-text font-semibold">Confidence</span>
+              </label>
+              <select v-model="filterConfidence" class="select select-bordered select-sm w-full">
+                <option value="all">All Confidence</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </div>
+
+            <!-- Clear Filters Button -->
+            <div class="form-control">
+              <label class="label">
+                <span class="label-text opacity-0">Clear</span>
+              </label>
+              <button
+                @click="clearFilters"
+                :disabled="!hasActiveFilters"
+                class="btn btn-sm btn-outline"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                Clear Filters
+              </button>
+            </div>
+          </div>
+
+          <!-- Filter Status -->
+          <div v-if="hasActiveFilters" class="mt-3 text-sm">
+            <span class="text-base-content/70">Active filters:</span>
+            <span v-if="filterType !== 'all'" class="badge badge-sm badge-primary ml-2">
+              Type: {{ filterType }}
+            </span>
+            <span v-if="filterChromosome !== 'all'" class="badge badge-sm badge-primary ml-2">
+              Chr: {{ filterChromosome }}
+            </span>
+            <span v-if="filterConfidence !== 'all'" class="badge badge-sm badge-primary ml-2">
+              Confidence: {{ filterConfidence }}
+            </span>
+          </div>
+        </div>
+
         <div class="overflow-x-auto">
           <table class="table table-zebra">
             <thead>
@@ -41,7 +127,7 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(cnv, idx) in cnvs" :key="idx">
+              <tr v-for="(cnv, idx) in paginatedCnvs" :key="idx">
                 <td>
                   <span :class="cnv.type === 'amplification' ? 'badge badge-error' : 'badge badge-info'">
                     {{ cnv.type }}
@@ -61,13 +147,104 @@
             </tbody>
           </table>
         </div>
+
+        <!-- Pagination Controls -->
+        <div class="flex justify-between items-center mt-4">
+          <div class="join">
+            <button
+              class="join-item btn btn-sm"
+              @click="previousPage"
+              :disabled="currentPage === 1"
+            >
+              « Previous
+            </button>
+
+            <!-- Page numbers -->
+            <template v-if="totalPages <= 7">
+              <!-- Show all pages if 7 or fewer -->
+              <button
+                v-for="page in totalPages"
+                :key="page"
+                class="join-item btn btn-sm"
+                :class="{ 'btn-active': page === currentPage }"
+                @click="goToPage(page)"
+              >
+                {{ page }}
+              </button>
+            </template>
+            <template v-else>
+              <!-- Show smart pagination for many pages -->
+              <button
+                class="join-item btn btn-sm"
+                :class="{ 'btn-active': 1 === currentPage }"
+                @click="goToPage(1)"
+              >
+                1
+              </button>
+
+              <button
+                v-if="currentPage > 3"
+                class="join-item btn btn-sm btn-disabled"
+              >
+                ...
+              </button>
+
+              <template v-for="page in [currentPage - 1, currentPage, currentPage + 1]" :key="page">
+                <button
+                  v-if="page > 1 && page < totalPages"
+                  class="join-item btn btn-sm"
+                  :class="{ 'btn-active': page === currentPage }"
+                  @click="goToPage(page)"
+                >
+                  {{ page }}
+                </button>
+              </template>
+
+              <button
+                v-if="currentPage < totalPages - 2"
+                class="join-item btn btn-sm btn-disabled"
+              >
+                ...
+              </button>
+
+              <button
+                class="join-item btn btn-sm"
+                :class="{ 'btn-active': totalPages === currentPage }"
+                @click="goToPage(totalPages)"
+              >
+                {{ totalPages }}
+              </button>
+            </template>
+
+            <button
+              class="join-item btn btn-sm"
+              @click="nextPage"
+              :disabled="currentPage === totalPages"
+            >
+              Next »
+            </button>
+          </div>
+
+          <!-- Jump to page -->
+          <div class="flex items-center gap-2">
+            <span class="text-sm">Jump to page:</span>
+            <input
+              type="number"
+              min="1"
+              :max="totalPages"
+              v-model.number="currentPage"
+              class="input input-bordered input-sm w-20"
+              @input="e => goToPage(parseInt(e.target.value))"
+            />
+          </div>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue';
+import { ref, onMounted, watch, computed } from 'vue';
 import * as d3 from 'd3';
 import Plotly from 'plotly.js-dist-min';
 
@@ -88,6 +265,105 @@ const props = defineProps({
 
 const plotlyContainer = ref(null);
 const d3Container = ref(null);
+
+// Filter state
+const filterType = ref('all');
+const filterChromosome = ref('all');
+const filterConfidence = ref('all');
+
+// Pagination state
+const currentPage = ref(1);
+const itemsPerPage = 100;
+
+// Computed: Get unique chromosomes for filter dropdown
+const uniqueChromosomes = computed(() => {
+  if (!props.cnvs.length) return [];
+  return [...new Set(props.cnvs.map(cnv => cnv.chromosome))].sort();
+});
+
+// Computed: Apply filters
+const filteredCnvs = computed(() => {
+  let result = props.cnvs;
+
+  // Filter by type
+  if (filterType.value !== 'all') {
+    result = result.filter(cnv => cnv.type === filterType.value);
+  }
+
+  // Filter by chromosome
+  if (filterChromosome.value !== 'all') {
+    result = result.filter(cnv => cnv.chromosome === filterChromosome.value);
+  }
+
+  // Filter by confidence
+  if (filterConfidence.value !== 'all') {
+    result = result.filter(cnv => cnv.confidence === filterConfidence.value);
+  }
+
+  return result;
+});
+
+// Computed properties for pagination (uses filtered data)
+const totalPages = computed(() => {
+  return Math.ceil(filteredCnvs.value.length / itemsPerPage);
+});
+
+const paginatedCnvs = computed(() => {
+  const start = (currentPage.value - 1) * itemsPerPage;
+  const end = start + itemsPerPage;
+  return filteredCnvs.value.slice(start, end);
+});
+
+const pageInfo = computed(() => {
+  if (filteredCnvs.value.length === 0) return 'No results';
+  const start = (currentPage.value - 1) * itemsPerPage + 1;
+  const end = Math.min(currentPage.value * itemsPerPage, filteredCnvs.value.length);
+  return `${start}-${end} of ${filteredCnvs.value.length}`;
+});
+
+// Check if any filters are active
+const hasActiveFilters = computed(() => {
+  return filterType.value !== 'all' ||
+         filterChromosome.value !== 'all' ||
+         filterConfidence.value !== 'all';
+});
+
+// Pagination functions
+function goToPage(page) {
+  if (page >= 1 && page <= totalPages.value) {
+    currentPage.value = page;
+  }
+}
+
+function nextPage() {
+  if (currentPage.value < totalPages.value) {
+    currentPage.value++;
+  }
+}
+
+function previousPage() {
+  if (currentPage.value > 1) {
+    currentPage.value--;
+  }
+}
+
+// Clear all filters
+function clearFilters() {
+  filterType.value = 'all';
+  filterChromosome.value = 'all';
+  filterConfidence.value = 'all';
+  currentPage.value = 1;
+}
+
+// Reset to page 1 when CNV data changes
+watch(() => props.cnvs, () => {
+  currentPage.value = 1;
+});
+
+// Reset to page 1 when filters change
+watch([filterType, filterChromosome, filterConfidence], () => {
+  currentPage.value = 1;
+});
 
 onMounted(() => {
   if (props.coverageData.length > 0) {
