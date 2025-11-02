@@ -38,7 +38,23 @@
         </svg>
         <div>
           <div class="font-bold">🐍 Python Bioinformatics Pipeline Ready</div>
-          <div class="text-xs">Using pure Python BAM parser + NumPy/SciPy for CNV analysis (WASM-powered)</div>
+          <div class="text-xs">
+            Using pure Python BAM parser + NumPy/SciPy for CNV analysis (WASM-powered)
+            <span v-if="pyodidePool.poolReady.value"> | 🚀 Multi-threaded mode ({{ pyodidePool.totalWorkers.value }} workers)</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Worker Pool Initialization -->
+    <div v-if="pyodidePool.poolInitializing.value" class="alert alert-info shadow-lg">
+      <div class="flex items-center gap-2">
+        <span class="loading loading-spinner loading-sm"></span>
+        <div>
+          <div class="font-bold">Initializing Multi-threaded Processing</div>
+          <div class="text-xs">
+            Setting up {{ pyodidePool.totalWorkers.value }} worker threads... ({{ pyodidePool.workersReady.value }}/{{ pyodidePool.totalWorkers.value }} ready)
+          </div>
         </div>
       </div>
     </div>
@@ -258,6 +274,16 @@
           <div class="stat-value text-sm">{{ results.coverage_stats.mean.toFixed(1) }}x</div>
           <div class="stat-desc">Average across all windows</div>
         </div>
+
+        <div class="stat" v-if="results.method">
+          <div class="stat-title">Processing Method</div>
+          <div class="stat-value text-sm">
+            {{ results.method === 'pyodide-python-parallel' ? '🚀 Multi-threaded' : '🔧 Single-threaded' }}
+          </div>
+          <div class="stat-desc">
+            {{ results.worker_count ? `${results.worker_count} workers` : 'Main thread' }}
+          </div>
+        </div>
       </div>
 
       <!-- Export Options -->
@@ -302,9 +328,13 @@ import BrowserCompatWarning from '../components/BrowserCompatWarning.vue';
 import { analysisService } from '../services/analysis-service.js';
 import { opfsManager } from '../utils/opfs-manager.js';
 import { useGlobalPyodide } from '../composables/usePyodide.js';
+import { usePyodidePool } from '../composables/usePyodidePool.js';
 
 // Initialize Pyodide in background (non-blocking)
 const pyodide = useGlobalPyodide();
+
+// Initialize worker pool for multi-threaded processing
+const pyodidePool = usePyodidePool();
 
 // State
 const selectedFile = ref(null);
@@ -339,7 +369,18 @@ onMounted(async () => {
   // Initialize analysis service with Pyodide
   analysisService.initialize(pyodide);
 
+  // Initialize worker pool for multi-threaded processing (in background)
+  // This runs in parallel with the main Pyodide initialization
+  pyodidePool.initializePool().catch(err => {
+    console.warn('Worker pool initialization failed:', err);
+    console.log('Will fall back to single-threaded processing');
+  });
+
+  // Pass pool to analysis service
+  analysisService.initializePool(pyodidePool);
+
   console.log('CNV Analysis view mounted - Pyodide loading in background');
+  console.log(`Multi-threaded processing will use ${pyodidePool.totalWorkers.value} workers for files >50MB`);
 });
 
 // Methods

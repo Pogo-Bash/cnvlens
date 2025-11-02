@@ -2,11 +2,14 @@
  * Analysis Service
  * Provides unified interface for genomics analysis
  * Uses Pyodide (Python) for all bioinformatics analysis
+ * Supports multi-threaded parallel processing
  */
 
 class AnalysisService {
   constructor() {
     this.pyodide = null;
+    this.pyodidePool = null;
+    this.useParallelProcessing = true; // Feature flag for multi-threading
   }
 
   /**
@@ -18,14 +21,50 @@ class AnalysisService {
   }
 
   /**
+   * Initialize service with worker pool for parallel processing
+   */
+  initializePool(poolInstance) {
+    this.pyodidePool = poolInstance;
+    console.log('Analysis service initialized with worker pool support');
+  }
+
+  /**
+   * Set parallel processing mode
+   */
+  setParallelProcessing(enabled) {
+    this.useParallelProcessing = enabled;
+    console.log(`Parallel processing ${enabled ? 'enabled' : 'disabled'}`);
+  }
+
+  /**
    * Analyze CNV from BAM file using Python
+   * Automatically uses multi-threading for files > 50MB
    */
   async analyzeCNV(bamFile, options = {}) {
+    const fileSize = bamFile.size;
+    const fileSizeMB = fileSize / 1024 / 1024;
+
+    // Decide whether to use parallel processing
+    const shouldUseParallel = this.useParallelProcessing &&
+                              this.pyodidePool?.poolReady.value &&
+                              fileSizeMB > 50; // Use parallel for files > 50MB
+
+    if (shouldUseParallel) {
+      return await this.analyzeCNVParallel(bamFile, options);
+    } else {
+      return await this.analyzeCNVSingleThreaded(bamFile, options);
+    }
+  }
+
+  /**
+   * Single-threaded CNV analysis (original method)
+   */
+  async analyzeCNVSingleThreaded(bamFile, options = {}) {
     if (!this.pyodide?.isReady.value) {
       throw new Error('Python environment not ready. Please wait for initialization to complete.');
     }
 
-    console.log('Using Pyodide for CNV analysis');
+    console.log('🔧 Using single-threaded Pyodide for CNV analysis');
     console.log('Reading BAM file into memory...');
     const arrayBuffer = await bamFile.arrayBuffer();
 
@@ -37,7 +76,35 @@ class AnalysisService {
       chromosome: options.chromosome || null
     });
 
+    // Add method identifier to result
+    result.method = 'pyodide-python-single';
+    result.worker_count = 1;
+
     // Python returns the complete result with coverageData, cnvs, etc.
+    return result;
+  }
+
+  /**
+   * Multi-threaded CNV analysis using worker pool
+   */
+  async analyzeCNVParallel(bamFile, options = {}) {
+    if (!this.pyodidePool?.poolReady.value) {
+      console.warn('⚠️ Worker pool not ready, falling back to single-threaded');
+      return await this.analyzeCNVSingleThreaded(bamFile, options);
+    }
+
+    console.log(`🚀 Using multi-threaded worker pool (${this.pyodidePool.totalWorkers.value} workers) for CNV analysis`);
+    console.log('Reading BAM file into memory...');
+    const arrayBuffer = await bamFile.arrayBuffer();
+
+    console.log(`Analyzing BAM file (${(arrayBuffer.byteLength / 1024 / 1024).toFixed(2)} MB) with ${this.pyodidePool.totalWorkers.value} workers...`);
+
+    // Call parallel BAM analysis
+    const result = await this.pyodidePool.analyzeBamParallel(arrayBuffer, {
+      windowSize: options.windowSize || 10000,
+      chromosome: options.chromosome || null
+    });
+
     return result;
   }
 
