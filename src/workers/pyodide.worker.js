@@ -159,107 +159,176 @@ import struct
 import gzip
 import sys
 
-# Pure Python BAM parser (lightweight, works without pysam)
+# Pure Python BAM parser with streaming BGZF decompression
 class SimpleBamReader:
     """
     Simplified BAM file reader for basic operations
-    Works entirely in Python without external dependencies
+    Streams BGZF blocks on-demand (no full decompression!)
     """
 
     def __init__(self, bam_data):
-        """Initialize with BAM file data as bytes (BGZF compressed)"""
-        # BAM files are BGZF compressed - decompress first!
-        print(f"Decompressing BAM file ({len(bam_data)} bytes)...")
-        try:
-            self.data = gzip.decompress(bam_data)
-            print(f"✓ Decompressed to {len(self.data)} bytes")
-        except Exception as e:
-            print(f"✗ Decompression failed: {e}")
-            raise ValueError(f"Failed to decompress BAM file (BGZF): {e}")
-
-        self.pos = 0
+        """Initialize with BGZF compressed BAM file data"""
+        self.compressed_data = bam_data
+        self.compressed_pos = 0
+        self.uncompressed_buffer = b''
+        self.buffer_offset = 0
         self.references = []
         self.reference_lengths = []
 
-    def read_header(self):
-        """Read BAM header"""
-        # BAM magic number (after decompression)
-        magic = self.data[0:4]
-        if magic != b'BAM\\x01':
-            raise ValueError(f"Not a valid BAM file (magic: {magic!r}, expected: b'BAM\\\\x01')")
+        print(f"Initializing streaming BAM reader ({len(bam_data)} bytes compressed)")
 
-        self.pos = 4
+    def read_bgzf_block(self):
+        """Read and decompress one BGZF block"""
+        if self.compressed_pos >= len(self.compressed_data):
+            return None
+
+        try:
+            # BGZF block structure:
+            # - Gzip header with extra fields
+            # - Compressed data
+            # - CRC and size footer
+
+            # Find start of next block
+            start_pos = self.compressed_pos
+
+            # Read gzip header (minimum 10 bytes)
+            if start_pos + 18 > len(self.compressed_data):
+                return None
+
+            header = self.compressed_data[start_pos:start_pos+18]
+
+            # Check gzip magic
+            if header[0:2] != b'\\x1f\\x8b':
+                return None
+
+            # Get block size from BGZF extra field (BSIZE)
+            # BGZF stores block size - 1 in bytes 16-17
+            bsize = struct.unpack('<H', header[16:18])[0]
+            block_size = bsize + 1
+
+            # Read entire block
+            if start_pos + block_size > len(self.compressed_data):
+                return None
+
+            block = self.compressed_data[start_pos:start_pos+block_size]
+
+            # Decompress using gzip
+            decompressed = gzip.decompress(block)
+
+            # Move to next block
+            self.compressed_pos = start_pos + block_size
+
+            return decompressed
+
+        except Exception as e:
+            print(f"Error reading BGZF block at pos {self.compressed_pos}: {e}")
+            return None
+
+    def fill_buffer(self, min_bytes=65536):
+        """Fill uncompressed buffer by reading BGZF blocks"""
+        while len(self.uncompressed_buffer) - self.buffer_offset < min_bytes:
+            block = self.read_bgzf_block()
+            if block is None:
+                break
+            self.uncompressed_buffer += block
+
+    def read_bytes(self, n):
+        """Read n bytes from uncompressed stream"""
+        # Ensure buffer has enough data
+        while len(self.uncompressed_buffer) - self.buffer_offset < n:
+            block = self.read_bgzf_block()
+            if block is None:
+                # Not enough data
+                return None
+            self.uncompressed_buffer += block
+
+        # Read from buffer
+        data = self.uncompressed_buffer[self.buffer_offset:self.buffer_offset+n]
+        self.buffer_offset += n
+
+        # Trim buffer periodically to save memory
+        if self.buffer_offset > 1048576:  # 1MB
+            self.uncompressed_buffer = self.uncompressed_buffer[self.buffer_offset:]
+            self.buffer_offset = 0
+
+        return data
+
+    def read_header(self):
+        """Read BAM header from first BGZF block"""
+        print("Reading BAM header...")
+
+        # Fill initial buffer
+        self.fill_buffer(65536)
+
+        # BAM magic number
+        magic = self.read_bytes(4)
+        if magic != b'BAM\\x01':
+            raise ValueError(f"Not a valid BAM file (magic: {magic!r})")
 
         # Read SAM header length
-        l_text = struct.unpack('<I', self.data[self.pos:self.pos+4])[0]
-        self.pos += 4
+        l_text_bytes = self.read_bytes(4)
+        l_text = struct.unpack('<I', l_text_bytes)[0]
 
         # Skip SAM header text
-        self.pos += l_text
+        self.read_bytes(l_text)
 
         # Read number of reference sequences
-        n_ref = struct.unpack('<I', self.data[self.pos:self.pos+4])[0]
-        self.pos += 4
+        n_ref_bytes = self.read_bytes(4)
+        n_ref = struct.unpack('<I', n_ref_bytes)[0]
+
+        print(f"Found {n_ref} reference sequences")
 
         # Read reference sequence names and lengths
         for _ in range(n_ref):
-            l_name = struct.unpack('<I', self.data[self.pos:self.pos+4])[0]
-            self.pos += 4
+            l_name_bytes = self.read_bytes(4)
+            l_name = struct.unpack('<I', l_name_bytes)[0]
 
-            name = self.data[self.pos:self.pos+l_name-1].decode('utf-8')
-            self.pos += l_name
+            name_bytes = self.read_bytes(l_name)
+            name = name_bytes[:-1].decode('utf-8')  # Remove null terminator
 
-            l_ref = struct.unpack('<I', self.data[self.pos:self.pos+4])[0]
-            self.pos += 4
+            l_ref_bytes = self.read_bytes(4)
+            l_ref = struct.unpack('<I', l_ref_bytes)[0]
 
             self.references.append(name)
             self.reference_lengths.append(l_ref)
 
     def read_alignment(self):
-        """Read a single alignment record"""
-        if self.pos >= len(self.data):
+        """Read a single alignment record from stream"""
+        # Read block size
+        block_size_bytes = self.read_bytes(4)
+        if block_size_bytes is None or len(block_size_bytes) < 4:
             return None
 
-        try:
-            # Read block size
-            block_size = struct.unpack('<I', self.data[self.pos:self.pos+4])[0]
-            self.pos += 4
+        block_size = struct.unpack('<I', block_size_bytes)[0]
 
-            if self.pos + block_size > len(self.data):
-                return None
-
-            # Read core alignment data
-            refID = struct.unpack('<i', self.data[self.pos:self.pos+4])[0]
-            self.pos += 4
-
-            pos = struct.unpack('<i', self.data[self.pos:self.pos+4])[0]
-            self.pos += 4
-
-            bin_mq_nl = struct.unpack('<I', self.data[self.pos:self.pos+4])[0]
-            self.pos += 4
-
-            mapq = (bin_mq_nl >> 8) & 0xFF
-
-            flag_nc = struct.unpack('<I', self.data[self.pos:self.pos+4])[0]
-            self.pos += 4
-
-            flag = flag_nc >> 16
-
-            # Skip rest of the record
-            self.pos += block_size - 16
-
-            return {
-                'refID': refID,
-                'pos': pos,
-                'mapq': mapq,
-                'flag': flag,
-                'is_unmapped': (flag & 0x4) != 0,
-                'is_duplicate': (flag & 0x400) != 0,
-                'is_secondary': (flag & 0x100) != 0,
-            }
-        except Exception as e:
-            print(f"Error reading alignment: {e}")
+        # Read core alignment data (first 32 bytes of block)
+        core_data = self.read_bytes(32)
+        if core_data is None or len(core_data) < 32:
             return None
+
+        refID = struct.unpack('<i', core_data[0:4])[0]
+        pos = struct.unpack('<i', core_data[4:8])[0]
+
+        bin_mq_nl = struct.unpack('<I', core_data[8:12])[0]
+        mapq = (bin_mq_nl >> 8) & 0xFF
+
+        flag_nc = struct.unpack('<I', core_data[12:16])[0]
+        flag = flag_nc >> 16
+
+        # Skip rest of record (variable length data)
+        remaining = block_size - 32
+        if remaining > 0:
+            self.read_bytes(remaining)
+
+        return {
+            'refID': refID,
+            'pos': pos,
+            'mapq': mapq,
+            'flag': flag,
+            'is_unmapped': (flag & 0x4) != 0,
+            'is_duplicate': (flag & 0x400) != 0,
+            'is_secondary': (flag & 0x100) != 0,
+        }
 
     def calculate_coverage(self, chrom=None, window_size=10000):
         """Calculate coverage across genome"""
@@ -273,14 +342,22 @@ class SimpleBamReader:
             num_windows = (ref_len // window_size) + 1
             coverage[ref_name] = np.zeros(num_windows, dtype=np.int32)
 
-        # Iterate through alignments
+        # Stream through alignments
+        print(f"Streaming through alignments...")
         read_count = 0
+        last_report = 0
+
         while True:
             aln = self.read_alignment()
             if aln is None:
                 break
 
             read_count += 1
+
+            # Progress reporting every 100k reads
+            if read_count - last_report >= 100000:
+                print(f"  Processed {read_count:,} reads...")
+                last_report = read_count
 
             # Skip unmapped, duplicate, secondary
             if aln['is_unmapped'] or aln['is_duplicate'] or aln['is_secondary']:
@@ -303,6 +380,7 @@ class SimpleBamReader:
             if 0 <= window_idx < len(coverage[ref_name]):
                 coverage[ref_name][window_idx] += 1
 
+        print(f"✓ Processed {read_count:,} total reads")
         return coverage, read_count
 
 # Global BAM reader instance
