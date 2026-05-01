@@ -5,8 +5,9 @@
         <div class="max-w-2xl">
           <h1 class="text-5xl font-bold mb-4">🧬 LungSeq Analyzer</h1>
           <p class="text-lg mb-8">
-            Clinical-grade genomics analysis for lung cancer in your browser.
-            Powered by WebAssembly for blazing-fast, private computation.
+            Browser-based lung cancer genomics analysis. Variant calling and
+            CNV detection run locally in your browser via Pyodide — your data
+            never leaves the page.
           </p>
           <router-link to="/data-browser" class="btn btn-primary btn-lg">
             Get Started →

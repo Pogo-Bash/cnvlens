@@ -27,8 +27,8 @@
         <p class="font-bold">
           LungSeq Analyzer
         </p>
-        <p>Clinical-grade genomics analysis powered by WebAssembly</p>
-        <p class="text-sm text-base-content/60">Built with Vue 3, Vite, Tailwind CSS, and biowasm</p>
+        <p>Browser-based genomics analysis powered by Pyodide (Python in WebAssembly)</p>
+        <p class="text-sm text-base-content/60">Built with Vue 3, Vite, and Tailwind CSS — UIC class proof-of-concept</p>
       </div>
     </footer>
   </div>
