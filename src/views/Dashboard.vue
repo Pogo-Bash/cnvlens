@@ -1,69 +1,41 @@
 <template>
-  <div class="space-y-8 py-8">
-    <div class="hero bg-base-100 rounded-lg shadow-xl py-12">
-      <div class="hero-content text-center">
-        <div class="max-w-2xl">
-          <h1 class="text-5xl font-bold mb-4">🧬 LungSeq Analyzer</h1>
-          <p class="text-lg mb-8">
-            Browser-based lung cancer genomics analysis. Variant calling and
-            CNV detection run locally in your browser via Pyodide — your data
-            never leaves the page.
-          </p>
-          <router-link to="/data-browser" class="btn btn-primary btn-lg">
-            Get Started →
-          </router-link>
-        </div>
-      </div>
-    </div>
+  <div class="space-y-12">
+    <!-- Hero -->
+    <section class="max-w-2xl">
+      <h1 class="text-3xl font-bold text-text mb-2">
+        lungseq <span class="text-mauve">analyzer</span>
+      </h1>
+      <p class="text-subtext0 leading-relaxed">
+        browser-based lung cancer genomics analysis. variant calling and
+        CNV detection run locally in your browser via pyodide — your data
+        never leaves the page.
+      </p>
+      <router-link to="/variant-calling" class="btn-primary mt-6 inline-flex">
+        get started
+      </router-link>
+    </section>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-      <div class="card bg-base-100 shadow-xl hover:shadow-2xl transition-all">
-        <div class="card-body">
-          <h2 class="card-title">📊 Data Browser</h2>
-          <p>Fetch WES/WGS data from TCGA and ICGC</p>
-          <div class="card-actions justify-end">
-            <router-link to="/data-browser" class="btn btn-sm btn-primary">
-              Browse
-            </router-link>
-          </div>
-        </div>
-      </div>
+    <!-- Feature Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <router-link to="/data-browser" class="card-link group">
+        <h2 class="font-bold text-text group-hover:text-mauve transition-colors mb-1">data browser</h2>
+        <p class="text-sm text-subtext0">fetch WES/WGS data from TCGA and ICGC</p>
+      </router-link>
 
-      <div class="card bg-base-100 shadow-xl hover:shadow-2xl transition-all">
-        <div class="card-body">
-          <h2 class="card-title">🧬 Variant Calling</h2>
-          <p>Detect mutations using GATK/bcftools</p>
-          <div class="card-actions justify-end">
-            <router-link to="/variant-calling" class="btn btn-sm btn-primary">
-              Analyze
-            </router-link>
-          </div>
-        </div>
-      </div>
+      <router-link to="/variant-calling" class="card-link group">
+        <h2 class="font-bold text-text group-hover:text-mauve transition-colors mb-1">variant calling</h2>
+        <p class="text-sm text-subtext0">detect somatic mutations via pileup analysis</p>
+      </router-link>
 
-      <div class="card bg-base-100 shadow-xl hover:shadow-2xl transition-all">
-        <div class="card-body">
-          <h2 class="card-title">📈 CNV Analysis</h2>
-          <p>Call copy number variations</p>
-          <div class="card-actions justify-end">
-            <router-link to="/cnv-analysis" class="btn btn-sm btn-primary">
-              Detect
-            </router-link>
-          </div>
-        </div>
-      </div>
+      <router-link to="/cnv-analysis" class="card-link group">
+        <h2 class="font-bold text-text group-hover:text-mauve transition-colors mb-1">cnv analysis</h2>
+        <p class="text-sm text-subtext0">call copy number variations</p>
+      </router-link>
 
-      <div class="card bg-base-100 shadow-xl hover:shadow-2xl transition-all">
-        <div class="card-body">
-          <h2 class="card-title">📊 Visualization</h2>
-          <p>Generate publication-ready plots</p>
-          <div class="card-actions justify-end">
-            <router-link to="/visualization" class="btn btn-sm btn-primary">
-              Visualize
-            </router-link>
-          </div>
-        </div>
-      </div>
+      <router-link to="/visualization" class="card-link group">
+        <h2 class="font-bold text-text group-hover:text-mauve transition-colors mb-1">visualization</h2>
+        <p class="text-sm text-subtext0">generate publication-ready plots</p>
+      </router-link>
     </div>
   </div>
 </template>

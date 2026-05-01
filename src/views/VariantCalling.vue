@@ -1,388 +1,256 @@
 <template>
   <div class="space-y-6">
-    <!-- Breadcrumbs -->
-    <div class="breadcrumbs text-sm">
-      <ul>
-        <li><router-link to="/">Home</router-link></li>
-        <li>Variant Calling</li>
-      </ul>
-    </div>
-
     <!-- Header -->
-    <div>
-      <h1 class="text-4xl font-bold mb-2">Variant Calling Pipeline</h1>
-      <p class="text-lg text-base-content/70">Detect somatic mutations in lung cancer samples using Python-powered pileup analysis (WASM)</p>
+    <div class="max-w-2xl">
+      <h1 class="text-2xl font-bold text-text mb-2">variant calling pipeline</h1>
+      <p class="text-subtext0 leading-relaxed">detect somatic mutations in lung cancer samples using python-powered pileup analysis (WASM)</p>
     </div>
 
     <!-- Browser Compatibility Warning -->
     <BrowserCompatWarning />
 
     <!-- Pyodide Status -->
-    <div v-if="variantCaller.isInitializing.value" class="alert alert-info shadow-lg">
-      <div class="flex items-center gap-2">
-        <span class="loading loading-spinner loading-sm"></span>
-        <div>
-          <div class="font-bold">Python Environment Loading</div>
-          <div class="text-xs">
-            {{ variantCaller.status.value }} ({{ variantCaller.progress.value }}%)
-          </div>
-        </div>
-      </div>
-      <progress class="progress progress-info w-32" :value="variantCaller.progress.value" max="100"></progress>
-    </div>
-
-    <div v-if="variantCaller.isReady.value" class="alert alert-success shadow-lg">
-      <div class="flex items-center gap-2">
-        <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-        <div>
-          <div class="font-bold">🐍 Python Variant Calling Ready</div>
-          <div class="text-xs">Using pure Python pileup + NumPy for variant detection (WASM-powered)</div>
-        </div>
+    <div v-if="variantCaller.isInitializing.value" class="status-row">
+      <span class="status-dot bg-blue animate-pulse"></span>
+      <div class="flex-1">
+        <span class="text-sm text-subtext1">python environment loading — {{ variantCaller.status.value }} ({{ variantCaller.progress.value }}%)</span>
       </div>
     </div>
 
-    <div v-if="variantCaller.error.value" class="alert alert-error shadow-lg">
-      <div class="flex items-center gap-2">
-        <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-        <div>
-          <div class="font-bold">Python Environment Error</div>
-          <div class="text-xs">{{ variantCaller.error.value }}</div>
-        </div>
+    <div v-if="variantCaller.isReady.value" class="status-row border-green/30">
+      <span class="status-dot bg-green"></span>
+      <span class="text-sm text-subtext1">python variant calling ready — pileup + numpy (WASM)</span>
+    </div>
+
+    <div v-if="variantCaller.error.value" class="status-row border-red/30">
+      <span class="status-dot bg-red"></span>
+      <div class="flex-1">
+        <span class="text-sm text-text font-bold">python environment error</span>
+        <p class="text-xs text-subtext0">{{ variantCaller.error.value }}</p>
       </div>
     </div>
 
     <!-- Storage Info -->
-    <div class="alert shadow-lg" v-if="storageInfo">
-      <div class="flex items-center gap-2">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-info shrink-0 w-6 h-6">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-        </svg>
-        <div>
-          <div class="font-bold">Storage Status</div>
-          <div class="text-xs">
-            Used: {{ storageInfo.usageMB }}MB / {{ storageInfo.quotaMB }}MB ({{ storageInfo.percentUsed }}%)
-          </div>
-        </div>
-      </div>
-      <div class="flex gap-2">
-        <button class="btn btn-sm btn-ghost" @click="refreshStorage">Refresh</button>
-        <button class="btn btn-sm btn-warning" @click="clearStorage">Clear All</button>
-      </div>
+    <div v-if="storageInfo" class="status-row">
+      <span class="status-dot bg-blue"></span>
+      <span class="text-sm text-subtext0 flex-1">storage: {{ storageInfo.usageMB }}MB / {{ storageInfo.quotaMB }}MB ({{ storageInfo.percentUsed }}%)</span>
+      <button class="btn-ghost px-2 py-1 text-xs" @click="refreshStorage">refresh</button>
+      <button class="btn-ghost px-2 py-1 text-xs text-peach border-peach/30" @click="clearStorage">clear all</button>
     </div>
 
     <!-- Upload Section -->
-    <div class="card bg-base-100 shadow-xl">
-      <div class="card-body">
-        <h2 class="card-title mb-4">Upload Sequencing Data</h2>
+    <div class="card-static">
+      <h2 class="text-sm font-bold text-overlay1 uppercase tracking-wider mb-4">upload sequencing data</h2>
 
-        <div class="grid grid-cols-1 gap-4">
-          <!-- BAM File Upload -->
-          <div class="form-control w-full">
-            <label class="label">
-              <span class="label-text font-semibold">Tumor BAM File</span>
-              <span class="label-text-alt text-base-content/60">Required</span>
-            </label>
-            <input
-              type="file"
-              class="file-input file-input-bordered file-input-primary w-full"
-              accept=".bam"
-              @change="handleFileSelect"
-              :disabled="analyzing"
-            />
-            <label class="label" v-if="selectedFile">
-              <span class="label-text-alt text-success">✓ {{ selectedFile.name }} ({{ formatFileSize(selectedFile.size) }})</span>
-            </label>
-          </div>
+      <!-- BAM File Upload -->
+      <div class="mb-4">
+        <label class="input-label">tumor BAM file <span class="text-overlay0 font-normal">— required</span></label>
+        <input
+          type="file"
+          class="input-field cursor-pointer"
+          accept=".bam"
+          @change="handleFileSelect"
+          :disabled="analyzing"
+        />
+        <p v-if="selectedFile" class="text-xs text-green mt-1">{{ selectedFile.name }} ({{ formatFileSize(selectedFile.size) }})</p>
+      </div>
 
-          <!-- Analysis Options -->
-          <div class="divider">Variant Calling Filters</div>
+      <!-- Filters -->
+      <h3 class="text-sm font-bold text-overlay1 uppercase tracking-wider mb-3 mt-6">variant calling filters</h3>
 
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <!-- Minimum Depth -->
-            <div class="form-control w-full">
-              <label class="label">
-                <span class="label-text font-semibold">Min Depth</span>
-              </label>
-              <input type="number" class="input input-bordered w-full" v-model.number="minDepth" :disabled="analyzing" min="1" />
-              <label class="label">
-                <span class="label-text-alt">Minimum read depth</span>
-              </label>
-            </div>
-
-            <!-- Minimum Base Quality -->
-            <div class="form-control w-full">
-              <label class="label">
-                <span class="label-text font-semibold">Min Base Quality</span>
-              </label>
-              <input type="number" class="input input-bordered w-full" v-model.number="minBaseQuality" :disabled="analyzing" min="0" max="60" />
-              <label class="label">
-                <span class="label-text-alt">Phred quality score</span>
-              </label>
-            </div>
-
-            <!-- Minimum Mapping Quality -->
-            <div class="form-control w-full">
-              <label class="label">
-                <span class="label-text font-semibold">Min Mapping Quality</span>
-              </label>
-              <input type="number" class="input input-bordered w-full" v-model.number="minMappingQuality" :disabled="analyzing" min="0" max="60" />
-              <label class="label">
-                <span class="label-text-alt">Read mapping quality</span>
-              </label>
-            </div>
-
-            <!-- Minimum Variant Reads -->
-            <div class="form-control w-full">
-              <label class="label">
-                <span class="label-text font-semibold">Min Variant Reads</span>
-              </label>
-              <input type="number" class="input input-bordered w-full" v-model.number="minVariantReads" :disabled="analyzing" min="1" />
-              <label class="label">
-                <span class="label-text-alt">Supporting reads</span>
-              </label>
-            </div>
-
-            <!-- Minimum Allele Frequency -->
-            <div class="form-control w-full">
-              <label class="label">
-                <span class="label-text font-semibold">Min Allele Freq</span>
-              </label>
-              <input type="number" class="input input-bordered w-full" v-model.number="minAlleleFreq" :disabled="analyzing" min="0" max="1" step="0.01" />
-              <label class="label">
-                <span class="label-text-alt">Variant allele frequency</span>
-              </label>
-            </div>
-
-            <!-- Chromosome Selection -->
-            <div class="form-control w-full">
-              <label class="label">
-                <span class="label-text font-semibold">Chromosome</span>
-              </label>
-              <select class="select select-bordered w-full" v-model="selectedChromosome" :disabled="analyzing">
-                <option value="">All chromosomes</option>
-                <option v-for="chr in commonChromosomes" :key="chr" :value="chr">{{ chr }}</option>
-              </select>
-              <label class="label">
-                <span class="label-text-alt">Leave empty to analyze all</span>
-              </label>
-            </div>
-          </div>
-
-          <!-- Action Button -->
-          <div class="mt-4">
-            <button
-              class="btn btn-primary btn-lg w-full md:w-auto"
-              @click="runVariantCalling"
-              :disabled="!selectedFile || analyzing"
-            >
-              <span v-if="!analyzing">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 inline mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-                Call Variants (Python)
-              </span>
-              <span v-else class="loading loading-spinner"></span>
-            </button>
-
-            <div v-if="!variantCaller.isReady.value && !variantCaller.error.value" class="mt-2 text-sm text-info">
-              ⏳ Python environment loading in background... Variant calling will use Python when ready.
-            </div>
-          </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div>
+          <label class="input-label">min depth</label>
+          <input type="number" class="input-field" v-model.number="minDepth" :disabled="analyzing" min="1" />
+          <p class="input-helper">minimum read depth</p>
         </div>
+
+        <div>
+          <label class="input-label">min base quality</label>
+          <input type="number" class="input-field" v-model.number="minBaseQuality" :disabled="analyzing" min="0" max="60" />
+          <p class="input-helper">phred quality score</p>
+        </div>
+
+        <div>
+          <label class="input-label">min mapping quality</label>
+          <input type="number" class="input-field" v-model.number="minMappingQuality" :disabled="analyzing" min="0" max="60" />
+          <p class="input-helper">read mapping quality</p>
+        </div>
+
+        <div>
+          <label class="input-label">min variant reads</label>
+          <input type="number" class="input-field" v-model.number="minVariantReads" :disabled="analyzing" min="1" />
+          <p class="input-helper">supporting reads</p>
+        </div>
+
+        <div>
+          <label class="input-label">min allele freq</label>
+          <input type="number" class="input-field" v-model.number="minAlleleFreq" :disabled="analyzing" min="0" max="1" step="0.01" />
+          <p class="input-helper">variant allele frequency</p>
+        </div>
+
+        <div>
+          <label class="input-label">chromosome</label>
+          <select class="input-field" v-model="selectedChromosome" :disabled="analyzing">
+            <option value="">all chromosomes</option>
+            <option v-for="chr in commonChromosomes" :key="chr" :value="chr">{{ chr }}</option>
+          </select>
+          <p class="input-helper">leave empty to analyze all</p>
+        </div>
+      </div>
+
+      <!-- Action Button -->
+      <div class="mt-6">
+        <button
+          class="btn-primary"
+          @click="runVariantCalling"
+          :disabled="!selectedFile || analyzing"
+        >
+          <span v-if="!analyzing">call variants</span>
+          <span v-else class="flex items-center gap-2">
+            <span class="spinner !h-4 !w-4 !border-crust !border-t-transparent"></span>
+            running...
+          </span>
+        </button>
+
+        <p v-if="!variantCaller.isReady.value && !variantCaller.error.value" class="text-xs text-overlay1 mt-2">
+          python environment loading in background...
+        </p>
       </div>
     </div>
 
-    <!-- Progress Section -->
-    <div class="card bg-base-100 shadow-xl" v-if="analyzing || progress.message">
-      <div class="card-body">
-        <h2 class="card-title">Variant Calling Progress</h2>
-
-        <div class="space-y-4">
-          <div>
-            <div class="flex justify-between mb-2">
-              <span class="text-sm font-medium">{{ progress.message }}</span>
-              <span class="text-sm font-medium">{{ progress.progress }}%</span>
-            </div>
-            <progress
-              class="progress progress-primary w-full"
-              :value="progress.progress"
-              max="100"
-            ></progress>
-          </div>
-        </div>
-      </div>
-    </div>
+    <!-- Terminal Log for Progress -->
+    <TerminalLog v-if="logLines.length > 0" :lines="logLines" :running="analyzing" />
 
     <!-- Error Section -->
-    <div class="alert alert-error" v-if="error">
-      <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-      <div>
-        <h3 class="font-bold">Variant Calling Failed</h3>
-        <div class="text-sm">{{ error }}</div>
+    <div v-if="error" class="status-row border-red/30">
+      <span class="status-dot bg-red"></span>
+      <div class="flex-1">
+        <span class="text-sm text-text font-bold">variant calling failed</span>
+        <p class="text-xs text-subtext0">{{ error }}</p>
       </div>
-      <button class="btn btn-sm" @click="error = null">Dismiss</button>
+      <button class="btn-ghost px-2 py-1 text-xs" @click="error = null">dismiss</button>
     </div>
 
     <!-- Results Section -->
-    <div v-if="results">
+    <div v-if="results" class="space-y-6">
       <!-- Summary Stats -->
-      <div class="stats shadow w-full">
-        <div class="stat">
-          <div class="stat-title">Total Variants</div>
-          <div class="stat-value">{{ results.total_variants }}</div>
-          <div class="stat-desc">Detected mutations</div>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="card-static">
+          <p class="text-xs text-overlay1 uppercase tracking-wider">total variants</p>
+          <p class="text-2xl font-bold text-text mt-1">{{ results.total_variants }}</p>
         </div>
-
-        <div class="stat">
-          <div class="stat-title">SNVs</div>
-          <div class="stat-value text-primary">{{ snvCount }}</div>
-          <div class="stat-desc">Single nucleotide variants</div>
+        <div class="card-static">
+          <p class="text-xs text-overlay1 uppercase tracking-wider">SNVs</p>
+          <p class="text-2xl font-bold text-mauve mt-1">{{ snvCount }}</p>
         </div>
-
-        <div class="stat" title="Indel calling is not yet implemented in this proof-of-concept. Only SNVs are detected.">
-          <div class="stat-title">Indels</div>
-          <div class="stat-value text-base-content/40">N/A</div>
-          <div class="stat-desc text-warning">Not implemented</div>
+        <div class="card-static opacity-50">
+          <p class="text-xs text-overlay1 uppercase tracking-wider">indels</p>
+          <p class="text-2xl font-bold text-overlay0 mt-1">n/a</p>
+          <p class="text-xs text-overlay0">not implemented</p>
         </div>
-
-        <div class="stat">
-          <div class="stat-title">Chromosomes</div>
-          <div class="stat-value text-sm">{{ results.chromosomes_processed?.length || 0 }}</div>
-          <div class="stat-desc">Processed</div>
+        <div class="card-static">
+          <p class="text-xs text-overlay1 uppercase tracking-wider">chromosomes</p>
+          <p class="text-2xl font-bold text-text mt-1">{{ results.chromosomes_processed?.length || 0 }}</p>
         </div>
       </div>
 
-      <!-- Variant Table with Filtering -->
-      <div class="card bg-base-100 shadow-xl mt-6">
-        <div class="card-body">
-          <h2 class="card-title">Detected Variants</h2>
+      <!-- Variant Table -->
+      <div class="card-static">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-sm font-bold text-overlay1 uppercase tracking-wider">detected variants</h2>
+          <p class="text-xs text-overlay0">only SNVs — indel calling not yet implemented</p>
+        </div>
 
-          <!-- Note about indels -->
-          <div class="alert alert-info text-sm mb-4">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-5 h-5">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-            </svg>
-            <span>Only SNVs are detected. Indel calling (insertions/deletions) is not yet implemented in this proof-of-concept.</span>
-          </div>
-
-          <!-- Filters -->
-          <div class="flex flex-wrap gap-2 mb-4">
-            <select class="select select-bordered select-sm" v-model="filterChromosome">
-              <option value="all">All Chromosomes</option>
+        <!-- Filters -->
+        <div class="flex flex-wrap gap-3 mb-4">
+          <div>
+            <select class="input-field !w-auto" v-model="filterChromosome">
+              <option value="all">all chromosomes</option>
               <option v-for="chr in uniqueChromosomes" :key="chr" :value="chr">{{ chr }}</option>
             </select>
-
+          </div>
+          <div>
             <input
               type="number"
-              class="input input-bordered input-sm"
-              placeholder="Min AF"
+              class="input-field !w-32"
+              placeholder="min AF"
               v-model.number="filterMinAF"
               step="0.01"
               min="0"
               max="1"
             />
           </div>
+        </div>
 
-          <!-- Pagination Info -->
-          <div class="flex items-center gap-4 mb-4" v-if="filteredVariants.length > 0">
-            <div class="text-sm">
-              Showing {{ ((currentPage - 1) * itemsPerPage) + 1 }}-{{ Math.min(currentPage * itemsPerPage, filteredVariants.length) }} of {{ filteredVariants.length }} variants
-            </div>
-
-            <div class="join">
-              <button class="join-item btn btn-sm" @click="goToPage(1)" :disabled="currentPage === 1">«</button>
-              <button class="join-item btn btn-sm" @click="previousPage" :disabled="currentPage === 1">‹</button>
-              <button class="join-item btn btn-sm btn-active">{{ currentPage }} / {{ totalPages }}</button>
-              <button class="join-item btn btn-sm" @click="nextPage" :disabled="currentPage === totalPages">›</button>
-              <button class="join-item btn btn-sm" @click="goToPage(totalPages)" :disabled="currentPage === totalPages">»</button>
-            </div>
+        <!-- Pagination -->
+        <div v-if="filteredVariants.length > 0" class="flex items-center gap-4 mb-4">
+          <span class="text-xs text-overlay1">
+            {{ ((currentPage - 1) * itemsPerPage) + 1 }}–{{ Math.min(currentPage * itemsPerPage, filteredVariants.length) }} of {{ filteredVariants.length }}
+          </span>
+          <div class="flex gap-1">
+            <button class="btn-ghost px-2 py-1 text-xs" @click="goToPage(1)" :disabled="currentPage === 1">first</button>
+            <button class="btn-ghost px-2 py-1 text-xs" @click="previousPage" :disabled="currentPage === 1">prev</button>
+            <span class="text-xs text-overlay1 px-2 py-1">{{ currentPage }}/{{ totalPages }}</span>
+            <button class="btn-ghost px-2 py-1 text-xs" @click="nextPage" :disabled="currentPage === totalPages">next</button>
+            <button class="btn-ghost px-2 py-1 text-xs" @click="goToPage(totalPages)" :disabled="currentPage === totalPages">last</button>
           </div>
+        </div>
 
-          <!-- Variant Table -->
-          <div class="overflow-x-auto">
-            <table class="table table-zebra table-sm">
-              <thead>
-                <tr>
-                  <th>Chromosome</th>
-                  <th>Position</th>
-                  <th>Ref</th>
-                  <th>Alt</th>
-                  <th>Type</th>
-                  <th>Quality</th>
-                  <th>Depth</th>
-                  <th>Ref/Alt</th>
-                  <th>AF</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="variant in paginatedVariants" :key="`${variant.chrom}-${variant.pos}`">
-                  <td class="font-mono">{{ variant.chrom }}</td>
-                  <td class="font-mono">{{ variant.pos.toLocaleString() }}</td>
-                  <td class="font-mono font-bold">{{ variant.ref }}</td>
-                  <td class="font-mono font-bold text-primary">{{ variant.alt }}</td>
-                  <td>
-                    <span class="badge badge-sm" :class="variantTypeBadge(variant.type)">
-                      {{ variant.type }}
-                    </span>
-                  </td>
-                  <td>{{ variant.qual.toFixed(1) }}</td>
-                  <td>{{ variant.depth }}</td>
-                  <td class="font-mono text-xs">{{ variant.ref_count }}/{{ variant.alt_count }}</td>
-                  <td>
-                    <span class="font-mono" :class="afColorClass(variant.allele_freq)">
-                      {{ (variant.allele_freq * 100).toFixed(1) }}%
-                    </span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+        <!-- Table -->
+        <div class="overflow-x-auto">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>chromosome</th>
+                <th>position</th>
+                <th>ref</th>
+                <th>alt</th>
+                <th>type</th>
+                <th>quality</th>
+                <th>depth</th>
+                <th>ref/alt</th>
+                <th>AF</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="variant in paginatedVariants" :key="`${variant.chrom}-${variant.pos}`">
+                <td>{{ variant.chrom }}</td>
+                <td class="numeric">{{ variant.pos.toLocaleString() }}</td>
+                <td class="font-bold">{{ variant.ref }}</td>
+                <td class="font-bold text-mauve">{{ variant.alt }}</td>
+                <td>
+                  <span class="text-xs px-2 py-0.5 rounded bg-surface0" :class="variantTypeClass(variant.type)">
+                    {{ variant.type }}
+                  </span>
+                </td>
+                <td class="numeric">{{ variant.qual.toFixed(1) }}</td>
+                <td class="numeric">{{ variant.depth }}</td>
+                <td class="text-xs">{{ variant.ref_count }}/{{ variant.alt_count }}</td>
+                <td class="numeric" :class="afColorClass(variant.allele_freq)">
+                  {{ (variant.allele_freq * 100).toFixed(1) }}%
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
 
       <!-- Export Options -->
-      <div class="card bg-base-100 shadow-xl mt-6">
-        <div class="card-body">
-          <h2 class="card-title">Export Results</h2>
-          <div class="flex flex-wrap gap-2">
-            <button class="btn btn-outline btn-sm" @click="exportAsVCF">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-              Download VCF
-            </button>
-            <button class="btn btn-outline btn-sm" @click="exportAsJSON">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-              Download JSON
-            </button>
-            <button class="btn btn-outline btn-sm" @click="exportAsCSV">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-              Download CSV
-            </button>
-          </div>
+      <div class="card-static">
+        <h2 class="text-sm font-bold text-overlay1 uppercase tracking-wider mb-3">export results</h2>
+        <div class="flex flex-wrap gap-2">
+          <button class="btn-ghost text-xs" @click="exportAsVCF">download VCF</button>
+          <button class="btn-ghost text-xs" @click="exportAsJSON">download JSON</button>
+          <button class="btn-ghost text-xs" @click="exportAsCSV">download CSV</button>
         </div>
       </div>
     </div>
 
-    <!-- Info Section -->
-    <div class="alert" v-if="!results && !analyzing">
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-6 h-6">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-      </svg>
-      <div>
-        <h3 class="font-bold">Getting Started</h3>
-        <div class="text-sm">Upload a BAM file to detect SNVs using Python-based pileup analysis (NumPy running in WebAssembly via Pyodide). Indel calling is not yet implemented.</div>
-      </div>
+    <!-- Getting Started -->
+    <div v-if="!results && !analyzing && logLines.length === 0" class="status-row">
+      <span class="status-dot bg-blue"></span>
+      <span class="text-sm text-subtext0">upload a BAM file to detect SNVs using python-based pileup analysis. indel calling not yet implemented.</span>
     </div>
   </div>
 </template>
@@ -390,6 +258,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import BrowserCompatWarning from '../components/BrowserCompatWarning.vue';
+import TerminalLog from '../components/TerminalLog.vue';
 import { useVariantCaller } from '../composables/useVariantCaller.js';
 import { opfsManager } from '../utils/opfs-manager.js';
 
@@ -409,6 +278,7 @@ const progress = ref({ message: '', progress: 0, stage: '' });
 const error = ref(null);
 const results = ref(null);
 const storageInfo = ref(null);
+const logLines = ref([]);
 
 // Filtering
 const filterChromosome = ref('all');
@@ -424,6 +294,13 @@ const commonChromosomes = [
   'chr11', 'chr12', 'chr13', 'chr14', 'chr15', 'chr16', 'chr17', 'chr18', 'chr19',
   'chr20', 'chr21', 'chr22', 'chrX', 'chrY'
 ];
+
+// Terminal log helper
+function addLog(message, level = 'INFO') {
+  const now = new Date();
+  const timestamp = `[${now.toTimeString().slice(0, 8)}]`;
+  logLines.value.push({ timestamp, level, message });
+}
 
 // Computed
 const snvCount = computed(() => {
@@ -474,7 +351,7 @@ onMounted(async () => {
       const text = await savedData.text();
       const parsed = JSON.parse(text);
       results.value = parsed.results;
-      console.log('✓ Loaded previous variant results from OPFS');
+      console.log('Loaded previous variant results from OPFS');
       console.log(`  File: ${parsed.fileName}, Date: ${new Date(parsed.timestamp).toLocaleString()}`);
     }
   } catch (err) {
@@ -499,18 +376,26 @@ async function runVariantCalling() {
   analyzing.value = true;
   error.value = null;
   results.value = null;
+  logLines.value = [];
+  currentPage.value = 1;
   progress.value = { message: 'Starting variant calling...', progress: 0, stage: '' };
+
+  addLog(`starting variant calling on ${selectedFile.value.name}`);
 
   try {
     // Save to OPFS first (for persistence)
+    addLog('saving file to OPFS storage...');
     progress.value = { message: 'Saving file to storage...', progress: 5, stage: 'saving' };
     await opfsManager.writeFile(selectedFile.value.name, selectedFile.value);
-    console.log(`✅ ${selectedFile.value.name} saved to OPFS for persistence`);
+    addLog(`${selectedFile.value.name} saved to OPFS`);
 
     // Read file into memory
+    addLog('reading file into memory...');
     const arrayBuffer = await selectedFile.value.arrayBuffer();
+    addLog(`loaded ${(arrayBuffer.byteLength / 1024 / 1024).toFixed(1)}MB into memory`);
 
     // Run variant calling
+    addLog('starting python pileup analysis...');
     const variantResults = await variantCaller.callVariants(arrayBuffer, {
       minDepth: minDepth.value,
       minBaseQuality: minBaseQuality.value,
@@ -520,11 +405,16 @@ async function runVariantCalling() {
       chromosomes: selectedChromosome.value ? [selectedChromosome.value] : null,
       onProgress: (p) => {
         progress.value = p;
+        if (p.message && p.message !== progress.value._lastLogged) {
+          addLog(p.message);
+          progress.value._lastLogged = p.message;
+        }
       }
     });
 
     results.value = variantResults;
     progress.value = { message: 'Complete!', progress: 100, stage: 'complete' };
+    addLog(`complete — ${variantResults.total_variants} variants detected`);
 
     // Save results to OPFS for persistence across page navigation
     try {
@@ -533,9 +423,9 @@ async function runVariantCalling() {
         timestamp: Date.now(),
         fileName: selectedFile.value.name
       }));
-      console.log('✓ Variant results saved to OPFS');
+      addLog('results saved to OPFS');
     } catch (saveErr) {
-      console.error('Failed to save variant results:', saveErr);
+      addLog('failed to save results to OPFS', 'WARN');
     }
 
     // Refresh storage info
@@ -543,6 +433,7 @@ async function runVariantCalling() {
   } catch (err) {
     console.error('Variant calling error:', err);
     error.value = err.message || 'An error occurred during variant calling';
+    addLog(err.message || 'variant calling failed', 'ERROR');
   } finally {
     analyzing.value = false;
   }
@@ -568,10 +459,8 @@ async function clearStorage() {
     results.value = null;
 
     await refreshStorage();
-    alert('Storage cleared successfully!');
   } catch (err) {
     console.error('Failed to clear storage:', err);
-    alert('Failed to clear storage: ' + err.message);
   }
 }
 
@@ -644,17 +533,17 @@ function formatFileSize(bytes) {
   return (bytes / 1024 / 1024 / 1024).toFixed(1) + ' GB';
 }
 
-function variantTypeBadge(type) {
-  if (type === 'SNV') return 'badge-primary';
-  if (type === 'INS') return 'badge-success';
-  if (type === 'DEL') return 'badge-error';
-  return 'badge-ghost';
+function variantTypeClass(type) {
+  if (type === 'SNV') return 'text-mauve';
+  if (type === 'INS') return 'text-green';
+  if (type === 'DEL') return 'text-red';
+  return 'text-overlay1';
 }
 
 function afColorClass(af) {
-  if (af >= 0.5) return 'text-error font-bold';
-  if (af >= 0.2) return 'text-warning';
-  return 'text-base-content';
+  if (af >= 0.5) return 'text-red font-bold';
+  if (af >= 0.2) return 'text-peach';
+  return '';
 }
 
 function goToPage(page) {
@@ -673,7 +562,3 @@ function previousPage() {
   }
 }
 </script>
-
-<style scoped>
-/* Additional custom styles if needed */
-</style>
