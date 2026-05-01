@@ -9,6 +9,7 @@ LungSeq Analyzer is a browser-based proof-of-concept for local-first cancer geno
 ## What works
 
 - **SNV calling** — upload a BAM, get a sparse-pileup-based SNV caller with configurable depth/quality/AF filters and VCF/JSON/CSV export.
+- **Sample data** — click "try with sample data" on the Variant Calling page to run the pipeline without your own files. Sample data: NA12878 exome slice covering EGFR (chr7:55,000,000–55,300,000, GRCh37). 2.4MB, ~57x coverage in captured exons. Released under 1000 Genomes Project data use policy (unrestricted).
 - **CNV analysis** — read-depth based amp/del calls with adaptive or manual thresholds, confidence scoring, and Plotly + D3 visualizations.
 - **Visualization** — Manhattan plot, allele-frequency histogram, quality-vs-depth scatter, CNV genome overview, per-chromosome summary, with PNG/SVG export.
 - **OPFS storage** — large BAM files persist between sessions via the Origin Private File System, with an IndexedDB fallback for browsers that don't support OPFS.
@@ -43,7 +44,7 @@ Files never leave the browser. The only network calls are loading the Pyodide ru
 
 ## Tech stack
 
-- **Frontend:** Vue 3 (Composition API), Vite, Vue Router, Tailwind + DaisyUI
+- **Frontend:** Vue 3 (Composition API), Vite, Vue Router, Tailwind (Catppuccin Mocha)
 - **Bioinformatics:** Pyodide 0.24 (Python 3.11 + NumPy in WebAssembly), custom BGZF/BAM parser
 - **Visualization:** Plotly.js, D3
 - **Storage:** OPFS with IndexedDB fallback
@@ -91,11 +92,12 @@ The headers are set inside the container, so the image works as a standalone dep
 lungseq-analyzer/
 ├── docs/                       # deploy guide, architecture notes
 ├── public/pyodide/             # Pyodide runtime (copied at build time)
+├── public/sample-data/         # bundled NA12878 EGFR slice (1000 Genomes)
 ├── scripts/copy-pyodide.js     # build helper
 ├── server.js                   # production static server with COOP/COEP
 ├── src/
 │   ├── views/                  # Dashboard, DataBrowser, VariantCalling, CNVAnalysis, Visualization
-│   ├── components/             # CNVVisualization, BrowserCompatWarning
+│   ├── components/             # CNVVisualization, BrowserCompatWarning, TerminalLog
 │   ├── composables/            # usePyodide, useVariantCaller, usePyodidePool
 │   ├── services/               # analysis-service
 │   ├── utils/                  # opfs-manager, browser-compat
@@ -110,5 +112,6 @@ MIT.
 ## Acknowledgments
 
 - Pyodide team for making in-browser Python practical
+- [1000 Genomes Project](https://www.internationalgenome.org/) for the NA12878 exome data used as bundled sample data
 - TCGA / ICGC for the open cancer genomics data the (currently mocked) Data Browser would have queried
 - UIC for the class that prompted this
