@@ -3,7 +3,7 @@
  * Enables parallel BAM processing across multiple CPU cores
  */
 
-import { ref, computed } from 'vue';
+import { ref } from 'vue';
 
 const WORKER_COUNT = Math.min(navigator.hardwareConcurrency || 4, 4); // Max 4 workers
 
