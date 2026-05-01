@@ -11,7 +11,7 @@
     <!-- Header -->
     <div>
       <h1 class="text-4xl font-bold mb-2">Copy Number Variation Analysis</h1>
-      <p class="text-lg text-base-content/70">Detect gene amplifications and deletions in cancer genomes using Python + NumPy/SciPy (WASM-powered)</p>
+      <p class="text-lg text-base-content/70">Detect gene amplifications and deletions in cancer genomes using Python + NumPy (WASM-powered)</p>
     </div>
 
     <!-- Browser Compatibility Warning -->
@@ -39,7 +39,7 @@
         <div>
           <div class="font-bold">🐍 Python Bioinformatics Pipeline Ready</div>
           <div class="text-xs">
-            Using pure Python BAM parser + NumPy/SciPy for CNV analysis (WASM-powered)
+            Using pure Python BAM parser + NumPy for CNV analysis (WASM-powered)
             <span v-if="pyodidePool.poolReady.value"> | 🚀 Multi-threaded mode ({{ pyodidePool.totalWorkers.value }} workers)</span>
           </div>
         </div>
@@ -396,7 +396,7 @@
       </svg>
       <div>
         <h3 class="font-bold">Getting Started</h3>
-        <div class="text-sm">Upload a BAM file to detect copy number variations using Python-based read depth analysis (NumPy + SciPy running in WebAssembly).</div>
+        <div class="text-sm">Upload a BAM file to detect copy number variations using Python-based read depth analysis (NumPy running in WebAssembly).</div>
       </div>
     </div>
   </div>

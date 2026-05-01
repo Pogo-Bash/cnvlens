@@ -1,216 +1,95 @@
-# 🧬 LungSeq Analyzer
+# LungSeq Analyzer
 
-**Clinical-grade lung cancer genomics analysis. In your browser. Powered by WebAssembly.**
+LungSeq Analyzer is a browser-based proof-of-concept for local-first cancer genomics analysis. Built as a class project at UIC. It implements pileup-based variant calling and read-depth CNV detection in pure Python, running entirely in the browser via Pyodide. No server, no uploads, no installation.
 
-[![Made with Vue.js](https://img.shields.io/badge/Vue.js-4FC08D?style=for-the-badge&logo=vue.js&logoColor=white)](https://vuejs.org/)
-[![Vite](https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev/)
-[![TailwindCSS](https://img.shields.io/badge/Tailwind-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
-[![WebAssembly](https://img.shields.io/badge/WebAssembly-654FF0?style=for-the-badge&logo=webassembly&logoColor=white)](https://webassembly.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
+**Live demo:** https://lungseq-analyzer.onrender.com
 
----
+> This is a scoped class project. It's not maintained, it's not a clinical tool, and it's not going to be either of those things. PRs are welcome but I'm not actively developing it.
 
-## What's This?
+## What works
 
-Ever tried using genomics analysis tools? They're a pain. Upload your data to some server, wait hours, pray your internet doesn't die
+- **SNV calling** — upload a BAM, get a sparse-pileup-based SNV caller with configurable depth/quality/AF filters and VCF/JSON/CSV export.
+- **CNV analysis** — read-depth based amp/del calls with adaptive or manual thresholds, confidence scoring, and Plotly + D3 visualizations.
+- **Visualization** — Manhattan plot, allele-frequency histogram, quality-vs-depth scatter, CNV genome overview, per-chromosome summary, with PNG/SVG export.
+- **OPFS storage** — large BAM files persist between sessions via the Origin Private File System, with an IndexedDB fallback for browsers that don't support OPFS.
 
-**LungSeq Analyzer** flips that model on its head:
-- ✅ Everything runs **locally in your browser** via WebAssembly
-- ✅ Your data **never leaves your device**
-- ✅ Results in **minutes, not hours**
-- ✅ **Zero cost** - no cloud compute bills
-- ✅ Works **offline** once loaded
+## What's scaffolded
 
----
+- **TCGA / ICGC integration** — the Data Browser page is a static UI mockup. The "Search TCGA Database" button has no handler. `vite.config.js` has proxy entries for `api.gdc.cancer.gov` and the ICGC API but no client code uses them.
+- **Indel calling** — the variant caller emits SNVs only. Indels would need CIGAR-aware pileup logic that isn't implemented. The UI surfaces this limitation explicitly now (it used to silently report 0 indels).
+- **Worker pool parallelism** — `src/composables/usePyodidePool.js` builds a multi-threaded Pyodide worker pool that splits chromosomes across cores, but the parallel path is gated behind a feature flag set to `false` in `src/services/analysis-service.js`. See the docstring at the top of `usePyodidePool.js` for why it's off.
+- **Data Browser** — see TCGA/ICGC above. It's a non-functional placeholder.
 
-## Features
+## Architecture
 
-### 📊 Data Browser
-Fetch lung cancer genomic data directly from TCGA and ICGC databases. Filter by cancer type, sequencing method, and coverage depth.
+All bioinformatics work happens in Python via Pyodide. There is no compiled bcftools/samtools in this repo — the pipeline is a custom pure-Python BAM parser plus NumPy:
 
-### 🧬 Variant Calling
-Detect somatic mutations using industry-standard tools (GATK/bcftools) compiled to WebAssembly. Find those driver mutations that matter.
+```
+Vue 3 UI (main thread)
+    │
+    │ postMessage(BAM ArrayBuffer)
+    ▼
+Pyodide Web Worker (Python 3.11 + NumPy in WASM)
+    ├── SimpleBamReader        — streaming BGZF + BAM binary parser
+    ├── Coverage / pileup      — sparse two-pass pileup, NumPy bincount
+    ├── CNV detector           — read-depth thresholds (adaptive or manual)
+    └── SNV caller             — Phred-scaled qual from allele frequency
+    │
+    ▼ JSON results
+Plotly / D3 visualizations + OPFS persistence
+```
 
-### 📈 CNV Analysis  
-Call copy number variations - see which genes are amplified or deleted in cancer cells. MYC going crazy? We'll catch it.
+Files never leave the browser. The only network calls are loading the Pyodide runtime itself (~18 MB, cached after first load).
 
-### 📊 Visualization Suite
-Generate publication-ready plots:
-- Coverage plots
-- Manhattan plots for variant distribution
-- Genome-wide CNV views
-- Oncoprints showing mutation patterns
-- Mutation signatures
+## Tech stack
 
-All powered by D3.js and Plotly for that crispy interactive feel.
+- **Frontend:** Vue 3 (Composition API), Vite, Vue Router, Tailwind + DaisyUI
+- **Bioinformatics:** Pyodide 0.24 (Python 3.11 + NumPy in WebAssembly), custom BGZF/BAM parser
+- **Visualization:** Plotly.js, D3
+- **Storage:** OPFS with IndexedDB fallback
+- **Hosting:** Render (Node static server, see `server.js` and `docs/DEPLOY.md`)
 
----
+## Local development
 
-## Tech Stack
-
-**Frontend:**
-- Vue 3 (Composition API)
-- Vite (fast as heck)
-- Tailwind CSS + DaisyUI (pretty components)
-- D3.js + Plotly.js (data visualization)
-
-**WASM Magic:**
-- bcftools (variant calling)
-- samtools (BAM file handling)
-- Custom CNV detection algorithms
-- All compiled to WebAssembly for native-speed performance
-
-**Storage:**
-- OPFS (Origin Private File System) for handling large BAM files
-- LocalForage for metadata and results
-
-**APIs:**
-- TCGA GDC API (cancer genomics data)
-- ICGC API (international cancer data)
-
----
-
-## Getting Started
 ```bash
-# Clone the repo
 git clone https://github.com/Pogo-Bash/lungseq-analyzer.git
 cd lungseq-analyzer
-
-# Install dependencies
 npm install
-
-# Run dev server
 npm run dev
-
-# Build for production
-npm run build
 ```
 
-Open http://localhost:3000 and you're off to the races.
+Then open http://localhost:3000. Both `npm run dev` and `npm run build` run a `copy-pyodide` step that copies the Pyodide runtime from `node_modules/pyodide` into `public/pyodide/`. The dev server sets the COOP/COEP headers Pyodide requires.
 
----
+```bash
+npm run build       # production build to dist/
+npm run start       # serve dist/ via server.js (used by Render)
+npm run preview     # vite preview (alternative)
+```
 
-## How It Works
+## Project layout
 
-### The Traditional Way (Bad):
-1. Upload 50GB BAM file to cloud
-2. Wait 6 hours
-3. Download results
-4. Pay $$$
-5. Wonder if your data is on some server in Idaho
-
-### The LungSeq Way (Good):
-1. Load BAM file in browser
-2. WASM processes it locally
-3. Results in 15 minutes
-4. Zero server costs
-5. Data never leaves your laptop
-
-**It's like Photoshop vs cloud photo editors.** Everything local, everything fast, everything private.
-
----
-
-## Project Structure
 ```
 lungseq-analyzer/
+├── docs/                       # deploy guide, architecture notes
+├── public/pyodide/             # Pyodide runtime (copied at build time)
+├── scripts/copy-pyodide.js     # build helper
+├── server.js                   # production static server with COOP/COEP
 ├── src/
-│   ├── views/           # Main app pages
-│   ├── components/      # Reusable UI components
-│   ├── services/        # API clients (TCGA, ICGC)
-│   ├── workers/         # Web Workers for heavy computation
-│   ├── utils/           # BAM/VCF parsers
-│   └── stores/          # State management
-├── public/
-│   ├── wasm/           # WASM binaries
-│   └── data/           # Reference genomes
-└── docs/               # Documentation
+│   ├── views/                  # Dashboard, DataBrowser, VariantCalling, CNVAnalysis, Visualization
+│   ├── components/             # CNVVisualization, BrowserCompatWarning
+│   ├── composables/            # usePyodide, useVariantCaller, usePyodidePool
+│   ├── services/               # analysis-service
+│   ├── utils/                  # opfs-manager, browser-compat
+│   └── workers/                # pyodide.worker.js
+└── vite.config.js
 ```
-
----
-
-## Roadmap
-
-**Week 1:**
-- [x] Project setup + UI scaffold
-- [ ] TCGA API integration
-- [ ] File upload + validation
-
-**Week 2:**
-- [ ] WASM variant calling pipeline
-- [ ] VCF parsing and filtering
-- [ ] Basic visualization
-
-**Week 3:**
-- [ ] CNV detection algorithm
-- [ ] Advanced plots (Manhattan, Oncoprint)
-- [ ] Results export
-
-**Week 4:**
-- [ ] Testing with real datasets
-- [ ] Documentation
-- [ ] Demo prep
-
----
-
-## Why WebAssembly?
-
-Because JavaScript is fast for most things, but **not for genomics**. Processing millions of sequencing reads needs native-speed performance.
-
-**Performance Comparison:**
-- JavaScript: 🐌 10+ minutes for variant calling
-- WASM: ⚡ 2-3 minutes for the same job
-- Native C++: 🚀 1-2 minutes
-
-WASM gets us 80% of native speed while running in a browser. That's the magic.
-
----
-
-## Privacy First
-
-All computation happens in your browser. Your genomic data:
-- ❌ Never uploaded to servers
-- ❌ Never stored in databases  
-- ❌ Never sent over the internet
-- ✅ Stays on your device, always
-
-This isn't just a feature - it's a requirement for clinical genomics tools.
-
----
-
-## Contributing
-
-This started as a class project but could become something real. PRs welcome!
-
-Areas that need love:
-- More WASM tools (CNVkit, FreeBayes)
-- Better visualization options
-- Support for more cancer types
-- Mobile optimization
-- Real-time collaboration features
-
----
 
 ## License
 
-MIT License - use it, fork it, build on it. Science should be open.
-
----
+MIT.
 
 ## Acknowledgments
 
-- **TCGA** and **ICGC** for open genomics data
-- **Broad Institute** for GATK
-- **Samtools** team for bcftools
-- **Emscripten** for making WASM compilation possible
-- My professor for the dope project idea
-
----
-
-## Contact
-
-Built by [@Pogo-Bash](https://github.com/Pogo-Bash)
-
-Questions? Open an issue or hit me up.
-
-**Let's make genomics analysis run smooth** 🚀
-
+- Pyodide team for making in-browser Python practical
+- TCGA / ICGC for the open cancer genomics data the (currently mocked) Data Browser would have queried
+- UIC for the class that prompted this
