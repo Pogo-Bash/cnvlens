@@ -1,299 +1,163 @@
 <template>
   <div class="space-y-6">
-    <!-- Breadcrumbs -->
-    <div class="breadcrumbs text-sm">
-      <ul>
-        <li><router-link to="/">Home</router-link></li>
-        <li>CNV Analysis</li>
-      </ul>
-    </div>
-
     <!-- Header -->
-    <div>
-      <h1 class="text-4xl font-bold mb-2">Copy Number Variation Analysis</h1>
-      <p class="text-lg text-base-content/70">Detect gene amplifications and deletions in cancer genomes using Python + NumPy (WASM-powered)</p>
+    <div class="max-w-2xl">
+      <h1 class="text-2xl font-bold text-text mb-2">copy number variation analysis</h1>
+      <p class="text-subtext0 leading-relaxed">detect gene amplifications and deletions in cancer genomes using python + numpy (WASM-powered)</p>
     </div>
 
     <!-- Browser Compatibility Warning -->
     <BrowserCompatWarning />
 
-    <!-- Pyodide Status (non-intrusive) -->
-    <div v-if="pyodide.isInitializing.value" class="alert alert-info shadow-lg">
-      <div class="flex items-center gap-2">
-        <span class="loading loading-spinner loading-sm"></span>
-        <div>
-          <div class="font-bold">Python Environment Loading</div>
-          <div class="text-xs">
-            {{ pyodide.status.value }} ({{ pyodide.progress.value }}%)
-          </div>
-        </div>
-      </div>
-      <progress class="progress progress-info w-32" :value="pyodide.progress.value" max="100"></progress>
+    <!-- Pyodide Status -->
+    <div v-if="pyodide.isInitializing.value" class="status-row">
+      <span class="status-dot bg-blue animate-pulse"></span>
+      <span class="text-sm text-subtext1">python environment loading — {{ pyodide.status.value }} ({{ pyodide.progress.value }}%)</span>
     </div>
 
-    <div v-if="pyodide.isReady.value" class="alert alert-success shadow-lg">
-      <div class="flex items-center gap-2">
-        <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-        <div>
-          <div class="font-bold">🐍 Python Bioinformatics Pipeline Ready</div>
-          <div class="text-xs">
-            Using pure Python BAM parser + NumPy for CNV analysis (WASM-powered)
-            <span v-if="pyodidePool.poolReady.value"> | 🚀 Multi-threaded mode ({{ pyodidePool.totalWorkers.value }} workers)</span>
-          </div>
-        </div>
-      </div>
+    <div v-if="pyodide.isReady.value" class="status-row border-green/30">
+      <span class="status-dot bg-green"></span>
+      <span class="text-sm text-subtext1">
+        python bioinformatics pipeline ready — pure python BAM parser + numpy
+        <span v-if="pyodidePool.poolReady.value" class="text-overlay1"> | multi-threaded ({{ pyodidePool.totalWorkers.value }} workers)</span>
+      </span>
     </div>
 
-    <!-- Worker Pool Initialization -->
-    <div v-if="pyodidePool.poolInitializing.value" class="alert alert-info shadow-lg">
-      <div class="flex items-center gap-2">
-        <span class="loading loading-spinner loading-sm"></span>
-        <div>
-          <div class="font-bold">Initializing Multi-threaded Processing</div>
-          <div class="text-xs">
-            Setting up {{ pyodidePool.totalWorkers.value }} worker threads... ({{ pyodidePool.workersReady.value }}/{{ pyodidePool.totalWorkers.value }} ready)
-          </div>
-        </div>
-      </div>
+    <div v-if="pyodidePool.poolInitializing.value" class="status-row">
+      <span class="status-dot bg-sapphire animate-pulse"></span>
+      <span class="text-sm text-subtext1">initializing worker threads... ({{ pyodidePool.workersReady.value }}/{{ pyodidePool.totalWorkers.value }} ready)</span>
     </div>
 
-    <div v-if="pyodide.error.value" class="alert alert-error shadow-lg">
-      <div class="flex items-center gap-2">
-        <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-        <div>
-          <div class="font-bold">Python Environment Error</div>
-          <div class="text-xs">{{ pyodide.error.value }} - Will use fallback if available</div>
-        </div>
+    <div v-if="pyodide.error.value" class="status-row border-red/30">
+      <span class="status-dot bg-red"></span>
+      <div class="flex-1">
+        <span class="text-sm text-text font-bold">python environment error</span>
+        <p class="text-xs text-subtext0">{{ pyodide.error.value }} — will use fallback if available</p>
       </div>
     </div>
 
     <!-- Storage Info -->
-    <div class="alert shadow-lg" v-if="storageInfo">
-      <div class="flex items-center gap-2">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-info shrink-0 w-6 h-6">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-        </svg>
-        <div>
-          <div class="font-bold">Storage Status</div>
-          <div class="text-xs">
-            Type: {{ storageInfo.storageType?.toUpperCase() || 'Unknown' }} |
-            Used: {{ storageInfo.usageMB }}MB / {{ storageInfo.quotaMB }}MB ({{ storageInfo.percentUsed }}%)
-          </div>
-        </div>
-      </div>
-      <div class="flex gap-2">
-        <button class="btn btn-sm btn-ghost" @click="refreshStorage">Refresh</button>
-        <button class="btn btn-sm btn-warning" @click="clearStorage">Clear All</button>
-      </div>
+    <div v-if="storageInfo" class="status-row">
+      <span class="status-dot bg-blue"></span>
+      <span class="text-sm text-subtext0 flex-1">
+        storage: {{ storageInfo.storageType?.toUpperCase() || 'unknown' }} | {{ storageInfo.usageMB }}MB / {{ storageInfo.quotaMB }}MB ({{ storageInfo.percentUsed }}%)
+      </span>
+      <button class="btn-ghost px-2 py-1 text-xs" @click="refreshStorage">refresh</button>
+      <button class="btn-ghost px-2 py-1 text-xs text-peach border-peach/30" @click="clearStorage">clear all</button>
     </div>
 
     <!-- Upload Section -->
-    <div class="card bg-base-100 shadow-xl">
-      <div class="card-body">
-        <h2 class="card-title mb-4">Upload Sequencing Data</h2>
+    <div class="card-static">
+      <h2 class="text-sm font-bold text-overlay1 uppercase tracking-wider mb-4">upload sequencing data</h2>
 
-        <div class="grid grid-cols-1 gap-4">
-          <!-- BAM File Upload -->
-          <div class="form-control w-full">
-            <label class="label">
-              <span class="label-text font-semibold">Tumor BAM File</span>
-              <span class="label-text-alt text-base-content/60">Required</span>
-            </label>
-            <input
-              type="file"
-              class="file-input file-input-bordered file-input-primary w-full"
-              accept=".bam"
-              @change="handleFileSelect"
-              :disabled="analyzing"
-            />
-            <label class="label" v-if="selectedFile">
-              <span class="label-text-alt text-success">✓ {{ selectedFile.name }} ({{ formatFileSize(selectedFile.size) }})</span>
-            </label>
-          </div>
+      <!-- BAM File Upload -->
+      <div class="mb-4">
+        <label class="input-label">tumor BAM file <span class="text-overlay0 font-normal">— required</span></label>
+        <input
+          type="file"
+          class="input-field cursor-pointer"
+          accept=".bam"
+          @change="handleFileSelect"
+          :disabled="analyzing"
+        />
+        <p v-if="selectedFile" class="text-xs text-green mt-1">{{ selectedFile.name }} ({{ formatFileSize(selectedFile.size) }})</p>
+      </div>
 
-          <!-- Analysis Options -->
-          <div class="divider">Analysis Options</div>
+      <!-- Analysis Options -->
+      <h3 class="text-sm font-bold text-overlay1 uppercase tracking-wider mb-3 mt-6">analysis options</h3>
 
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <!-- Window Size -->
-            <div class="form-control w-full">
-              <label class="label">
-                <span class="label-text font-semibold">Window Size (bp)</span>
-              </label>
-              <select class="select select-bordered w-full" v-model="windowSize" :disabled="analyzing">
-                <option :value="5000">5,000 bp (High Resolution)</option>
-                <option :value="10000">10,000 bp (Recommended)</option>
-                <option :value="50000">50,000 bp (Fast)</option>
-                <option :value="100000">100,000 bp (Very Fast)</option>
-              </select>
-              <label class="label">
-                <span class="label-text-alt">Smaller windows = higher resolution but slower</span>
-              </label>
-            </div>
-
-            <!-- Chromosome Selection -->
-            <div class="form-control w-full">
-              <label class="label">
-                <span class="label-text font-semibold">Chromosome</span>
-              </label>
-              <select class="select select-bordered w-full" v-model="selectedChromosome" :disabled="analyzing">
-                <option value="">All chromosomes</option>
-                <option v-for="chr in commonChromosomes" :key="chr" :value="chr">{{ chr }}</option>
-              </select>
-              <label class="label">
-                <span class="label-text-alt">Leave empty to analyze all</span>
-              </label>
-            </div>
-          </div>
-
-          <!-- CNV Detection Thresholds -->
-          <div class="divider">CNV Detection Thresholds</div>
-
-          <div class="form-control w-full mb-4">
-            <label class="label cursor-pointer">
-              <span class="label-text font-semibold">Use Manual Thresholds (Recommended)</span>
-              <input type="checkbox" class="toggle toggle-primary" v-model="useManualThresholds" :disabled="analyzing" />
-            </label>
-            <label class="label">
-              <span class="label-text-alt">Uncheck to use automatic adaptive thresholds based on coverage</span>
-            </label>
-          </div>
-
-          <div v-if="useManualThresholds" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <!-- Amplification Threshold -->
-            <div class="form-control w-full">
-              <label class="label">
-                <span class="label-text font-semibold">Amplification Threshold</span>
-              </label>
-              <input
-                type="number"
-                class="input input-bordered w-full"
-                v-model.number="ampThreshold"
-                :disabled="analyzing"
-                step="0.1"
-                min="1.0"
-                max="5.0"
-              />
-              <label class="label">
-                <span class="label-text-alt">Normalized coverage ratio (e.g., 1.5 = 50% above median)</span>
-              </label>
-            </div>
-
-            <!-- Deletion Threshold -->
-            <div class="form-control w-full">
-              <label class="label">
-                <span class="label-text font-semibold">Deletion Threshold</span>
-              </label>
-              <input
-                type="number"
-                class="input input-bordered w-full"
-                v-model.number="delThreshold"
-                :disabled="analyzing"
-                step="0.1"
-                min="0.1"
-                max="0.9"
-              />
-              <label class="label">
-                <span class="label-text-alt">Normalized coverage ratio (e.g., 0.5 = 50% below median)</span>
-              </label>
-            </div>
-
-            <!-- Minimum Windows -->
-            <div class="form-control w-full">
-              <label class="label">
-                <span class="label-text font-semibold">Minimum Consecutive Windows</span>
-              </label>
-              <input
-                type="number"
-                class="input input-bordered w-full"
-                v-model.number="minWindows"
-                :disabled="analyzing"
-                min="1"
-                max="20"
-              />
-              <label class="label">
-                <span class="label-text-alt">Minimum number of windows to call a CNV</span>
-              </label>
-            </div>
-
-            <!-- Reset to Defaults -->
-            <div class="form-control w-full flex items-end">
-              <button class="btn btn-outline btn-sm" @click="resetThresholds" :disabled="analyzing">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-                Reset to Defaults
-              </button>
-            </div>
-          </div>
-
-          <!-- Action Button -->
-          <div class="mt-4">
-            <button
-              class="btn btn-primary btn-lg w-full md:w-auto"
-              @click="runAnalysis"
-              :disabled="!selectedFile || analyzing"
-            >
-              <span v-if="!analyzing">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 inline mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                </svg>
-                Run CNV Detection (Python)
-              </span>
-              <span v-else class="loading loading-spinner"></span>
-            </button>
-
-            <div v-if="!pyodide.isReady.value && !pyodide.error.value" class="mt-2 text-sm text-info">
-              ⏳ Python environment loading in background... Analysis will use Python when ready.
-            </div>
-          </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="input-label">window size (bp)</label>
+          <select class="input-field" v-model="windowSize" :disabled="analyzing">
+            <option :value="5000">5,000 bp (high resolution)</option>
+            <option :value="10000">10,000 bp (recommended)</option>
+            <option :value="50000">50,000 bp (fast)</option>
+            <option :value="100000">100,000 bp (very fast)</option>
+          </select>
+          <p class="input-helper">smaller windows = higher resolution but slower</p>
         </div>
+
+        <div>
+          <label class="input-label">chromosome</label>
+          <select class="input-field" v-model="selectedChromosome" :disabled="analyzing">
+            <option value="">all chromosomes</option>
+            <option v-for="chr in commonChromosomes" :key="chr" :value="chr">{{ chr }}</option>
+          </select>
+          <p class="input-helper">leave empty to analyze all</p>
+        </div>
+      </div>
+
+      <!-- CNV Detection Thresholds -->
+      <h3 class="text-sm font-bold text-overlay1 uppercase tracking-wider mb-3 mt-6">cnv detection thresholds</h3>
+
+      <div class="flex items-center gap-3 mb-4">
+        <label class="input-label mb-0 cursor-pointer flex items-center gap-2">
+          <input type="checkbox" class="w-4 h-4 accent-[#cba6f7] rounded" v-model="useManualThresholds" :disabled="analyzing" />
+          <span>use manual thresholds (recommended)</span>
+        </label>
+      </div>
+      <p class="input-helper -mt-2 mb-4">uncheck to use automatic adaptive thresholds based on coverage</p>
+
+      <div v-if="useManualThresholds" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="input-label">amplification threshold</label>
+          <input type="number" class="input-field" v-model.number="ampThreshold" :disabled="analyzing" step="0.1" min="1.0" max="5.0" />
+          <p class="input-helper">normalized coverage ratio (e.g., 1.5 = 50% above median)</p>
+        </div>
+
+        <div>
+          <label class="input-label">deletion threshold</label>
+          <input type="number" class="input-field" v-model.number="delThreshold" :disabled="analyzing" step="0.1" min="0.1" max="0.9" />
+          <p class="input-helper">normalized coverage ratio (e.g., 0.5 = 50% below median)</p>
+        </div>
+
+        <div>
+          <label class="input-label">minimum consecutive windows</label>
+          <input type="number" class="input-field" v-model.number="minWindows" :disabled="analyzing" min="1" max="20" />
+          <p class="input-helper">minimum number of windows to call a CNV</p>
+        </div>
+
+        <div class="flex items-end">
+          <button class="btn-ghost text-xs" @click="resetThresholds" :disabled="analyzing">reset to defaults</button>
+        </div>
+      </div>
+
+      <!-- Action Button -->
+      <div class="mt-6">
+        <button
+          class="btn-primary"
+          @click="runAnalysis"
+          :disabled="!selectedFile || analyzing"
+        >
+          <span v-if="!analyzing">run cnv detection</span>
+          <span v-else class="flex items-center gap-2">
+            <span class="spinner !h-4 !w-4 !border-crust !border-t-transparent"></span>
+            running...
+          </span>
+        </button>
+
+        <p v-if="!pyodide.isReady.value && !pyodide.error.value" class="text-xs text-overlay1 mt-2">
+          python environment loading in background...
+        </p>
       </div>
     </div>
 
-    <!-- Progress Section -->
-    <div class="card bg-base-100 shadow-xl" v-if="analyzing || progress.message">
-      <div class="card-body">
-        <h2 class="card-title">Analysis Progress</h2>
-
-        <div class="space-y-4">
-          <div>
-            <div class="flex justify-between mb-2">
-              <span class="text-sm font-medium">{{ progress.message }}</span>
-              <span class="text-sm font-medium">{{ progress.progress }}%</span>
-            </div>
-            <progress
-              class="progress progress-primary w-full"
-              :value="progress.progress"
-              max="100"
-            ></progress>
-          </div>
-
-          <div class="text-sm text-base-content/70" v-if="progress.chromosome">
-            Processing: {{ progress.chromosome }}
-          </div>
-        </div>
-      </div>
-    </div>
+    <!-- Terminal Log for Progress -->
+    <TerminalLog v-if="logLines.length > 0" :lines="logLines" :running="analyzing" />
 
     <!-- Error Section -->
-    <div class="alert alert-error" v-if="error">
-      <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-      <div>
-        <h3 class="font-bold">Analysis Failed</h3>
-        <div class="text-sm">{{ error }}</div>
+    <div v-if="error" class="status-row border-red/30">
+      <span class="status-dot bg-red"></span>
+      <div class="flex-1">
+        <span class="text-sm text-text font-bold">analysis failed</span>
+        <p class="text-xs text-subtext0">{{ error }}</p>
       </div>
-      <button class="btn btn-sm" @click="error = null">Dismiss</button>
+      <button class="btn-ghost px-2 py-1 text-xs" @click="error = null">dismiss</button>
     </div>
 
     <!-- Results Section -->
-    <div v-if="results">
+    <div v-if="results" class="space-y-6">
       <CNVVisualization
         :coverage-data="results.coverageData"
         :cnvs="results.cnvs"
@@ -301,103 +165,72 @@
       />
 
       <!-- Summary Stats -->
-      <div class="stats shadow w-full mt-6">
-        <div class="stat">
-          <div class="stat-title">Total CNVs</div>
-          <div class="stat-value">{{ results.cnvs.length }}</div>
-          <div class="stat-desc">Detected variations</div>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="card-static">
+          <p class="text-xs text-overlay1 uppercase tracking-wider">total CNVs</p>
+          <p class="text-2xl font-bold text-text mt-1">{{ results.cnvs.length }}</p>
         </div>
-
-        <div class="stat">
-          <div class="stat-title">Amplifications</div>
-          <div class="stat-value text-error">{{ amplificationCount }}</div>
-          <div class="stat-desc">Gene duplications</div>
+        <div class="card-static">
+          <p class="text-xs text-overlay1 uppercase tracking-wider">amplifications</p>
+          <p class="text-2xl font-bold text-red mt-1">{{ amplificationCount }}</p>
         </div>
-
-        <div class="stat">
-          <div class="stat-title">Deletions</div>
-          <div class="stat-value text-info">{{ deletionCount }}</div>
-          <div class="stat-desc">Gene losses</div>
+        <div class="card-static">
+          <p class="text-xs text-overlay1 uppercase tracking-wider">deletions</p>
+          <p class="text-2xl font-bold text-blue mt-1">{{ deletionCount }}</p>
         </div>
-
-        <div class="stat">
-          <div class="stat-title">Window Size</div>
-          <div class="stat-value text-sm">{{ formatNumber(results.windowSize) }}</div>
-          <div class="stat-desc">Base pairs</div>
+        <div class="card-static">
+          <p class="text-xs text-overlay1 uppercase tracking-wider">window size</p>
+          <p class="text-2xl font-bold text-text mt-1 font-mono">{{ formatNumber(results.windowSize) }}</p>
+          <p class="text-xs text-overlay0">base pairs</p>
         </div>
       </div>
 
       <!-- Coverage Quality Stats -->
-      <div class="stats shadow w-full mt-6" v-if="results?.coverage_stats">
-        <div class="stat">
-          <div class="stat-title">Coverage Quality</div>
-          <div class="stat-value text-sm" :class="{
-            'text-error': results.coverage_stats.class === 'low',
-            'text-warning': results.coverage_stats.class === 'medium',
-            'text-success': results.coverage_stats.class === 'high'
-          }">
-            {{ results.coverage_stats.class.toUpperCase() }}
-          </div>
-          <div class="stat-desc">{{ results.coverage_stats.median.toFixed(1) }}x median coverage</div>
+      <div v-if="results?.coverage_stats" class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="card-static">
+          <p class="text-xs text-overlay1 uppercase tracking-wider">coverage quality</p>
+          <p class="text-lg font-bold mt-1" :class="{
+            'text-red': results.coverage_stats.class === 'low',
+            'text-peach': results.coverage_stats.class === 'medium',
+            'text-green': results.coverage_stats.class === 'high'
+          }">{{ results.coverage_stats.class }}</p>
+          <p class="text-xs text-overlay0">{{ results.coverage_stats.median.toFixed(1) }}x median</p>
         </div>
-
-        <div class="stat">
-          <div class="stat-title">Detection Mode</div>
-          <div class="stat-value text-sm">
-            {{ results.coverage_stats.class === 'low' ? 'Conservative' :
-               results.coverage_stats.class === 'medium' ? 'Standard' : 'Sensitive' }}
-          </div>
-          <div class="stat-desc">Auto-adjusted CNV thresholds</div>
+        <div class="card-static">
+          <p class="text-xs text-overlay1 uppercase tracking-wider">detection mode</p>
+          <p class="text-lg font-bold text-text mt-1">
+            {{ results.coverage_stats.class === 'low' ? 'conservative' :
+               results.coverage_stats.class === 'medium' ? 'standard' : 'sensitive' }}
+          </p>
+          <p class="text-xs text-overlay0">auto-adjusted thresholds</p>
         </div>
-
-        <div class="stat">
-          <div class="stat-title">Mean Coverage</div>
-          <div class="stat-value text-sm">{{ results.coverage_stats.mean.toFixed(1) }}x</div>
-          <div class="stat-desc">Average across all windows</div>
+        <div class="card-static">
+          <p class="text-xs text-overlay1 uppercase tracking-wider">mean coverage</p>
+          <p class="text-lg font-bold text-text mt-1 font-mono">{{ results.coverage_stats.mean.toFixed(1) }}x</p>
         </div>
-
-        <div class="stat" v-if="results.method">
-          <div class="stat-title">Processing Method</div>
-          <div class="stat-value text-sm">
-            {{ results.method === 'pyodide-python-parallel' ? '🚀 Multi-threaded' : '🔧 Single-threaded' }}
-          </div>
-          <div class="stat-desc">
-            {{ results.worker_count ? `${results.worker_count} workers` : 'Main thread' }}
-          </div>
+        <div v-if="results.method" class="card-static">
+          <p class="text-xs text-overlay1 uppercase tracking-wider">processing</p>
+          <p class="text-lg font-bold text-text mt-1">
+            {{ results.method === 'pyodide-python-parallel' ? 'multi-threaded' : 'single-threaded' }}
+          </p>
+          <p class="text-xs text-overlay0">{{ results.worker_count ? `${results.worker_count} workers` : 'main thread' }}</p>
         </div>
       </div>
 
       <!-- Export Options -->
-      <div class="card bg-base-100 shadow-xl mt-6">
-        <div class="card-body">
-          <h2 class="card-title">Export Results</h2>
-          <div class="flex flex-wrap gap-2">
-            <button class="btn btn-outline btn-sm" @click="exportAsJSON">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-              Download JSON
-            </button>
-            <button class="btn btn-outline btn-sm" @click="exportAsCSV">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-              Download CSV
-            </button>
-          </div>
+      <div class="card-static">
+        <h2 class="text-sm font-bold text-overlay1 uppercase tracking-wider mb-3">export results</h2>
+        <div class="flex flex-wrap gap-2">
+          <button class="btn-ghost text-xs" @click="exportAsJSON">download JSON</button>
+          <button class="btn-ghost text-xs" @click="exportAsCSV">download CSV</button>
         </div>
       </div>
     </div>
 
-    <!-- Info Section -->
-    <div class="alert" v-if="!results && !analyzing">
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-6 h-6">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-      </svg>
-      <div>
-        <h3 class="font-bold">Getting Started</h3>
-        <div class="text-sm">Upload a BAM file to detect copy number variations using Python-based read depth analysis (NumPy running in WebAssembly).</div>
-      </div>
+    <!-- Getting Started -->
+    <div v-if="!results && !analyzing && logLines.length === 0" class="status-row">
+      <span class="status-dot bg-blue"></span>
+      <span class="text-sm text-subtext0">upload a BAM file to detect copy number variations using python-based read depth analysis.</span>
     </div>
   </div>
 </template>
@@ -406,15 +239,13 @@
 import { ref, computed, onMounted } from 'vue';
 import CNVVisualization from '../components/CNVVisualization.vue';
 import BrowserCompatWarning from '../components/BrowserCompatWarning.vue';
+import TerminalLog from '../components/TerminalLog.vue';
 import { analysisService } from '../services/analysis-service.js';
 import { opfsManager } from '../utils/opfs-manager.js';
 import { useGlobalPyodide } from '../composables/usePyodide.js';
 import { usePyodidePool } from '../composables/usePyodidePool.js';
 
-// Initialize Pyodide in background (non-blocking)
 const pyodide = useGlobalPyodide();
-
-// Initialize worker pool for multi-threaded processing
 const pyodidePool = usePyodidePool();
 
 // State
@@ -426,12 +257,13 @@ const progress = ref({ message: '', progress: 0, stage: '', chromosome: '' });
 const error = ref(null);
 const results = ref(null);
 const storageInfo = ref(null);
+const logLines = ref([]);
 
-// Manual threshold controls (enabled by default)
+// Manual threshold controls
 const useManualThresholds = ref(true);
-const ampThreshold = ref(1.5);  // 50% above median (original default)
-const delThreshold = ref(0.5);  // 50% below median (original default)
-const minWindows = ref(1);      // Minimum consecutive windows (1 = original behavior, no filtering)
+const ampThreshold = ref(1.5);
+const delThreshold = ref(0.5);
+const minWindows = ref(1);
 
 // Common chromosomes
 const commonChromosomes = [
@@ -439,6 +271,13 @@ const commonChromosomes = [
   'chr11', 'chr12', 'chr13', 'chr14', 'chr15', 'chr16', 'chr17', 'chr18', 'chr19',
   'chr20', 'chr21', 'chr22', 'chrX', 'chrY'
 ];
+
+// Terminal log helper
+function addLog(message, level = 'INFO') {
+  const now = new Date();
+  const timestamp = `[${now.toTimeString().slice(0, 8)}]`;
+  logLines.value.push({ timestamp, level, message });
+}
 
 // Computed
 const amplificationCount = computed(() => {
@@ -453,7 +292,6 @@ const deletionCount = computed(() => {
 onMounted(async () => {
   await refreshStorage();
 
-  // Try to load previous CNV results from OPFS
   try {
     const exists = await opfsManager.fileExists('cnv-results.json');
     if (exists) {
@@ -461,28 +299,19 @@ onMounted(async () => {
       const text = await savedData.text();
       const parsed = JSON.parse(text);
       results.value = parsed.results;
-      console.log('✓ Loaded previous CNV results from OPFS');
-      console.log(`  File: ${parsed.fileName}, Date: ${new Date(parsed.timestamp).toLocaleString()}`);
+      console.log('Loaded previous CNV results from OPFS');
     }
   } catch (err) {
     console.log('No previous CNV results found');
   }
 
-  // Initialize analysis service with Pyodide
   analysisService.initialize(pyodide);
 
-  // Initialize worker pool for multi-threaded processing (in background)
-  // This runs in parallel with the main Pyodide initialization
   pyodidePool.initializePool().catch(err => {
     console.warn('Worker pool initialization failed:', err);
-    console.log('Will fall back to single-threaded processing');
   });
 
-  // Pass pool to analysis service
   analysisService.initializePool(pyodidePool);
-
-  console.log('CNV Analysis view mounted - Pyodide loading in background');
-  console.log(`Multi-threaded processing will use ${pyodidePool.totalWorkers.value} workers for files >50MB`);
 });
 
 // Methods
@@ -500,48 +329,52 @@ async function runAnalysis() {
   analyzing.value = true;
   error.value = null;
   results.value = null;
+  logLines.value = [];
   progress.value = { message: 'Starting analysis...', progress: 0, stage: '', chromosome: '' };
 
+  addLog(`starting CNV analysis on ${selectedFile.value.name}`);
+
   try {
-    // Save to OPFS first (for persistence and debugging)
+    addLog('saving file to OPFS storage...');
     progress.value = { message: 'Saving file to storage...', progress: 5, stage: 'saving', chromosome: '' };
     await opfsManager.writeFile(selectedFile.value.name, selectedFile.value);
-    console.log(`✅ ${selectedFile.value.name} saved to OPFS for persistence`);
+    addLog(`${selectedFile.value.name} saved to OPFS`);
 
-    // Now run the analysis (Python will use the in-memory file)
+    addLog(`window size: ${windowSize.value}bp, chromosome: ${selectedChromosome.value || 'all'}`);
+
     const analysisResults = await analysisService.analyzeCNV(selectedFile.value, {
       windowSize: windowSize.value,
       chromosome: selectedChromosome.value || null,
-      // Pass manual thresholds if enabled
       useManualThresholds: useManualThresholds.value,
       ampThreshold: useManualThresholds.value ? ampThreshold.value : null,
       delThreshold: useManualThresholds.value ? delThreshold.value : null,
       minWindows: useManualThresholds.value ? minWindows.value : null,
       onProgress: (p) => {
         progress.value = p;
+        if (p.message) addLog(p.message);
       }
     });
 
     results.value = analysisResults;
     progress.value = { message: 'Complete!', progress: 100, stage: 'complete', chromosome: '' };
+    addLog(`complete — ${analysisResults.cnvs.length} CNVs detected`);
 
-    // Save results to OPFS for persistence across page navigation
     try {
       await opfsManager.writeFile('cnv-results.json', JSON.stringify({
         results: analysisResults,
         timestamp: Date.now(),
         fileName: selectedFile.value.name
       }));
-      console.log('✓ CNV results saved to OPFS');
+      addLog('results saved to OPFS');
     } catch (saveErr) {
-      console.error('Failed to save CNV results:', saveErr);
+      addLog('failed to save results to OPFS', 'WARN');
     }
 
-    // Refresh storage info
     await refreshStorage();
   } catch (err) {
     console.error('Analysis error:', err);
     error.value = err.message || 'An error occurred during analysis';
+    addLog(err.message || 'analysis failed', 'ERROR');
   } finally {
     analyzing.value = false;
   }
@@ -556,65 +389,42 @@ async function refreshStorage() {
 }
 
 async function clearStorage() {
-  if (!confirm('Are you sure you want to clear all stored files? This cannot be undone.')) {
-    return;
-  }
+  if (!confirm('Are you sure you want to clear all stored files? This cannot be undone.')) return;
 
   try {
     await opfsManager.clearAll();
-
-    // Also clear CNV results from UI
     results.value = null;
-
     await refreshStorage();
-    alert('Storage cleared successfully!');
   } catch (err) {
     console.error('Failed to clear storage:', err);
-    alert('Failed to clear storage: ' + err.message);
   }
 }
 
 function resetThresholds() {
-  // Reset to original default values (before adaptive coverage was added)
-  ampThreshold.value = 1.5;  // 50% above median
-  delThreshold.value = 0.5;  // 50% below median
-  minWindows.value = 1;      // 1 = no minimum filtering (original behavior)
-  console.log('Thresholds reset to defaults');
+  ampThreshold.value = 1.5;
+  delThreshold.value = 0.5;
+  minWindows.value = 1;
 }
 
 function exportAsJSON() {
   if (!results.value) return;
-
   const data = {
     cnvs: results.value.cnvs,
     windowSize: results.value.windowSize,
     chromosomes: results.value.chromosomes,
     exportDate: new Date().toISOString()
   };
-
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   downloadBlob(blob, 'cnv-results.json');
 }
 
 function exportAsCSV() {
   if (!results.value) return;
-
   const headers = ['Chromosome', 'Start', 'End', 'Length', 'Type', 'Copy Number', 'Confidence'];
   const rows = results.value.cnvs.map(cnv => [
-    cnv.chromosome,
-    cnv.start,
-    cnv.end,
-    cnv.length,
-    cnv.type,
-    cnv.copyNumber.toFixed(2),
-    cnv.confidence
+    cnv.chromosome, cnv.start, cnv.end, cnv.length, cnv.type, cnv.copyNumber.toFixed(2), cnv.confidence
   ]);
-
-  const csv = [
-    headers.join(','),
-    ...rows.map(row => row.join(','))
-  ].join('\n');
-
+  const csv = [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
   downloadBlob(blob, 'cnv-results.csv');
 }
@@ -641,7 +451,3 @@ function formatNumber(num) {
   return num.toLocaleString();
 }
 </script>
-
-<style scoped>
-/* Additional custom styles if needed */
-</style>

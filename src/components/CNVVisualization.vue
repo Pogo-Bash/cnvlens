@@ -1,239 +1,142 @@
 <template>
   <div class="space-y-6">
     <!-- Plotly Coverage Plot -->
-    <div class="card bg-base-100 shadow-xl">
-      <div class="card-body">
-        <h3 class="card-title">Coverage Plot</h3>
-        <div ref="plotlyContainer" class="w-full" style="min-height: 400px;"></div>
-      </div>
+    <div class="card-static">
+      <h3 class="text-sm font-bold text-overlay1 uppercase tracking-wider mb-3">coverage plot</h3>
+      <div ref="plotlyContainer" class="w-full" style="min-height: 400px;"></div>
     </div>
 
     <!-- D3 CNV Overview -->
-    <div class="card bg-base-100 shadow-xl">
-      <div class="card-body">
-        <h3 class="card-title">CNV Overview</h3>
+    <div class="card-static">
+      <h3 class="text-sm font-bold text-overlay1 uppercase tracking-wider mb-3">cnv overview</h3>
 
-        <!-- Add loading spinner -->
-        <div v-if="!props.cnvs || props.cnvs.length === 0" class="flex items-center justify-center h-96">
-          <span class="loading loading-spinner loading-lg"></span>
-          <span class="ml-4">Preparing visualization...</span>
-        </div>
-
-        <div v-else ref="d3Container" class="w-full" style="min-height: 400px;"></div>
+      <div v-if="!props.cnvs || props.cnvs.length === 0" class="flex items-center justify-center h-96 gap-3">
+        <span class="spinner"></span>
+        <span class="text-sm text-overlay1">preparing visualization...</span>
       </div>
+
+      <div v-else ref="d3Container" class="w-full" style="min-height: 400px;"></div>
     </div>
 
     <!-- CNV Table -->
-    <div class="card bg-base-100 shadow-xl" v-if="cnvs && cnvs.length > 0">
-      <div class="card-body">
-        <!-- Header with counts -->
-        <div class="flex justify-between items-center mb-4">
-          <h3 class="card-title">
-            Detected CNVs ({{ cnvs.length }})
-            <span v-if="hasActiveFilters" class="badge badge-primary ml-2">
-              {{ filteredCnvs.length }} filtered
-            </span>
-          </h3>
-          <div class="text-sm text-base-content/70">
-            Showing {{ pageInfo }}
+    <div class="card-static" v-if="cnvs && cnvs.length > 0">
+      <!-- Header with counts -->
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-sm font-bold text-overlay1 uppercase tracking-wider">
+          detected CNVs ({{ cnvs.length }})
+          <span v-if="hasActiveFilters" class="text-xs px-2 py-0.5 rounded bg-surface0 text-mauve ml-2">
+            {{ filteredCnvs.length }} filtered
+          </span>
+        </h3>
+        <span class="text-xs text-overlay0">{{ pageInfo }}</span>
+      </div>
+
+      <!-- Filter Controls -->
+      <div class="bg-mantle rounded-lg p-4 mb-4">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div>
+            <label class="input-label">type</label>
+            <select v-model="filterType" class="input-field">
+              <option value="all">all types</option>
+              <option value="amplification">amplification</option>
+              <option value="deletion">deletion</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="input-label">chromosome</label>
+            <select v-model="filterChromosome" class="input-field">
+              <option value="all">all chromosomes</option>
+              <option v-for="chr in uniqueChromosomes" :key="chr" :value="chr">{{ chr }}</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="input-label">confidence</label>
+            <select v-model="filterConfidence" class="input-field">
+              <option value="all">all confidence</option>
+              <option value="high">high</option>
+              <option value="medium">medium</option>
+              <option value="low">low</option>
+            </select>
+          </div>
+
+          <div class="flex items-end">
+            <button
+              @click="clearFilters"
+              :disabled="!hasActiveFilters"
+              class="btn-ghost text-xs"
+            >
+              clear filters
+            </button>
           </div>
         </div>
 
-        <!-- Filter Controls -->
-        <div class="bg-base-200 rounded-lg p-4 mb-4">
-          <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <!-- Type Filter -->
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text font-semibold">Type</span>
-              </label>
-              <select v-model="filterType" class="select select-bordered select-sm w-full">
-                <option value="all">All Types</option>
-                <option value="amplification">Amplification</option>
-                <option value="deletion">Deletion</option>
-              </select>
-            </div>
+        <div v-if="hasActiveFilters" class="mt-3 flex gap-2 items-center">
+          <span class="text-xs text-overlay0">active:</span>
+          <span v-if="filterType !== 'all'" class="text-xs px-2 py-0.5 rounded bg-surface0 text-subtext0">{{ filterType }}</span>
+          <span v-if="filterChromosome !== 'all'" class="text-xs px-2 py-0.5 rounded bg-surface0 text-subtext0">{{ filterChromosome }}</span>
+          <span v-if="filterConfidence !== 'all'" class="text-xs px-2 py-0.5 rounded bg-surface0 text-subtext0">{{ filterConfidence }}</span>
+        </div>
+      </div>
 
-            <!-- Chromosome Filter -->
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text font-semibold">Chromosome</span>
-              </label>
-              <select v-model="filterChromosome" class="select select-bordered select-sm w-full">
-                <option value="all">All Chromosomes</option>
-                <option v-for="chr in uniqueChromosomes" :key="chr" :value="chr">
-                  {{ chr }}
-                </option>
-              </select>
-            </div>
+      <div class="overflow-x-auto">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>type</th>
+              <th>chromosome</th>
+              <th>start</th>
+              <th>end</th>
+              <th>length</th>
+              <th>copy number</th>
+              <th>confidence</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(cnv, idx) in paginatedCnvs" :key="idx">
+              <td>
+                <span class="text-xs px-2 py-0.5 rounded bg-surface0" :class="cnv.type === 'amplification' ? 'text-red' : 'text-blue'">
+                  {{ cnv.type }}
+                </span>
+              </td>
+              <td>{{ cnv.chromosome }}</td>
+              <td class="numeric">{{ formatNumber(cnv.start) }}</td>
+              <td class="numeric">{{ formatNumber(cnv.end) }}</td>
+              <td>{{ formatSize(cnv.length) }}</td>
+              <td class="numeric">{{ cnv.copyNumber.toFixed(2) }}</td>
+              <td>
+                <span class="text-xs" :class="getConfidenceClass(cnv.confidence)">
+                  {{ cnv.confidence }}
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
-            <!-- Confidence Filter -->
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text font-semibold">Confidence</span>
-              </label>
-              <select v-model="filterConfidence" class="select select-bordered select-sm w-full">
-                <option value="all">All Confidence</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
-            </div>
-
-            <!-- Clear Filters Button -->
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text opacity-0">Clear</span>
-              </label>
-              <button
-                @click="clearFilters"
-                :disabled="!hasActiveFilters"
-                class="btn btn-sm btn-outline"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-                Clear Filters
-              </button>
-            </div>
-          </div>
-
-          <!-- Filter Status -->
-          <div v-if="hasActiveFilters" class="mt-3 text-sm">
-            <span class="text-base-content/70">Active filters:</span>
-            <span v-if="filterType !== 'all'" class="badge badge-sm badge-primary ml-2">
-              Type: {{ filterType }}
-            </span>
-            <span v-if="filterChromosome !== 'all'" class="badge badge-sm badge-primary ml-2">
-              Chr: {{ filterChromosome }}
-            </span>
-            <span v-if="filterConfidence !== 'all'" class="badge badge-sm badge-primary ml-2">
-              Confidence: {{ filterConfidence }}
-            </span>
-          </div>
+      <!-- Pagination -->
+      <div class="flex flex-col md:flex-row justify-between items-center gap-4 mt-4">
+        <div class="flex gap-1">
+          <button class="btn-ghost px-2 py-1 text-xs" @click="goToPage(1)" :disabled="currentPage === 1">first</button>
+          <button class="btn-ghost px-2 py-1 text-xs" @click="previousPage" :disabled="currentPage === 1">prev</button>
+          <span class="text-xs text-overlay1 px-2 py-1">{{ currentPage }}/{{ totalPages }}</span>
+          <button class="btn-ghost px-2 py-1 text-xs" @click="nextPage" :disabled="currentPage === totalPages">next</button>
+          <button class="btn-ghost px-2 py-1 text-xs" @click="goToPage(totalPages)" :disabled="currentPage === totalPages">last</button>
         </div>
 
-        <div class="overflow-x-auto">
-          <table class="table table-zebra">
-            <thead>
-              <tr>
-                <th>Type</th>
-                <th>Chromosome</th>
-                <th>Start</th>
-                <th>End</th>
-                <th>Length</th>
-                <th>Copy Number</th>
-                <th>Confidence</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(cnv, idx) in paginatedCnvs" :key="idx">
-                <td>
-                  <span :class="cnv.type === 'amplification' ? 'badge badge-error' : 'badge badge-info'">
-                    {{ cnv.type }}
-                  </span>
-                </td>
-                <td>{{ cnv.chromosome }}</td>
-                <td>{{ formatNumber(cnv.start) }}</td>
-                <td>{{ formatNumber(cnv.end) }}</td>
-                <td>{{ formatSize(cnv.length) }}</td>
-                <td>{{ cnv.copyNumber.toFixed(2) }}</td>
-                <td>
-                  <span :class="getConfidenceBadge(cnv.confidence)">
-                    {{ cnv.confidence }}
-                  </span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <!-- Pagination Controls -->
-        <div class="flex flex-col md:flex-row justify-between items-center gap-4 mt-4">
-          <!-- Navigation Buttons -->
-          <div class="join">
-            <!-- First Page -->
-            <button
-              class="join-item btn btn-sm px-4"
-              @click="goToPage(1)"
-              :disabled="currentPage === 1"
-              title="First page"
-            >
-              «
-            </button>
-
-            <!-- Previous Page -->
-            <button
-              class="join-item btn btn-sm px-4"
-              @click="previousPage"
-              :disabled="currentPage === 1"
-              title="Previous page"
-            >
-              ‹
-            </button>
-
-            <!-- Current Page Info -->
-            <button class="join-item btn btn-sm btn-active pointer-events-none px-4">
-              {{ currentPage }} / {{ totalPages }}
-            </button>
-
-            <!-- Next Page -->
-            <button
-              class="join-item btn btn-sm px-4"
-              @click="nextPage"
-              :disabled="currentPage === totalPages"
-              title="Next page"
-            >
-              ›
-            </button>
-
-            <!-- Last Page -->
-            <button
-              class="join-item btn btn-sm px-4"
-              @click="goToPage(totalPages)"
-              :disabled="currentPage === totalPages"
-              title="Last page"
-            >
-              »
-            </button>
-          </div>
-
-          <!-- Quick Navigation -->
-          <div class="flex items-center gap-2">
-            <!-- Skip Back 10 -->
-            <button
-              class="btn btn-sm btn-outline"
-              @click="goToPage(Math.max(1, currentPage - 10))"
-              :disabled="currentPage <= 10"
-              title="Go back 10 pages"
-            >
-              -10
-            </button>
-
-            <!-- Jump to Page Input -->
-            <div class="flex items-center gap-2">
-              <span class="text-sm whitespace-nowrap">Go to:</span>
-              <input
-                type="number"
-                min="1"
-                :max="totalPages"
-                :value="currentPage"
-                @change="e => goToPage(parseInt(e.target.value) || 1)"
-                class="input input-bordered input-sm w-20"
-                placeholder="Page"
-              />
-            </div>
-
-            <!-- Skip Forward 10 -->
-            <button
-              class="btn btn-sm btn-outline"
-              @click="goToPage(Math.min(totalPages, currentPage + 10))"
-              :disabled="currentPage > totalPages - 10"
-              title="Go forward 10 pages"
-            >
-              +10
-            </button>
-          </div>
+        <div class="flex items-center gap-2">
+          <button class="btn-ghost px-2 py-1 text-xs" @click="goToPage(Math.max(1, currentPage - 10))" :disabled="currentPage <= 10">-10</button>
+          <span class="text-xs text-overlay0">go to:</span>
+          <input
+            type="number"
+            min="1"
+            :max="totalPages"
+            :value="currentPage"
+            @change="e => goToPage(parseInt(e.target.value) || 1)"
+            class="input-field !w-16 text-center"
+          />
+          <button class="btn-ghost px-2 py-1 text-xs" @click="goToPage(Math.min(totalPages, currentPage + 10))" :disabled="currentPage > totalPages - 10">+10</button>
         </div>
       </div>
     </div>
@@ -282,17 +185,14 @@ const uniqueChromosomes = computed(() => {
 const filteredCnvs = computed(() => {
   let result = props.cnvs;
 
-  // Filter by type
   if (filterType.value !== 'all') {
     result = result.filter(cnv => cnv.type === filterType.value);
   }
 
-  // Filter by chromosome
   if (filterChromosome.value !== 'all') {
     result = result.filter(cnv => cnv.chromosome === filterChromosome.value);
   }
 
-  // Filter by confidence
   if (filterConfidence.value !== 'all') {
     result = result.filter(cnv => cnv.confidence === filterConfidence.value);
   }
@@ -300,7 +200,6 @@ const filteredCnvs = computed(() => {
   return result;
 });
 
-// Computed properties for pagination (uses filtered data)
 const totalPages = computed(() => {
   return Math.ceil(filteredCnvs.value.length / itemsPerPage);
 });
@@ -312,43 +211,32 @@ const paginatedCnvs = computed(() => {
 });
 
 const pageInfo = computed(() => {
-  if (filteredCnvs.value.length === 0) return 'No results';
+  if (filteredCnvs.value.length === 0) return 'no results';
   const start = (currentPage.value - 1) * itemsPerPage + 1;
   const end = Math.min(currentPage.value * itemsPerPage, filteredCnvs.value.length);
   return `${start}-${end} of ${filteredCnvs.value.length}`;
 });
 
-// Check if any filters are active
 const hasActiveFilters = computed(() => {
   return filterType.value !== 'all' ||
          filterChromosome.value !== 'all' ||
          filterConfidence.value !== 'all';
 });
 
-// Pagination functions
 function goToPage(page) {
-  // Handle invalid inputs
   const pageNum = parseInt(page);
   if (isNaN(pageNum)) return;
-
-  // Clamp to valid range
-  const validPage = Math.max(1, Math.min(totalPages.value, pageNum));
-  currentPage.value = validPage;
+  currentPage.value = Math.max(1, Math.min(totalPages.value, pageNum));
 }
 
 function nextPage() {
-  if (currentPage.value < totalPages.value) {
-    currentPage.value++;
-  }
+  if (currentPage.value < totalPages.value) currentPage.value++;
 }
 
 function previousPage() {
-  if (currentPage.value > 1) {
-    currentPage.value--;
-  }
+  if (currentPage.value > 1) currentPage.value--;
 }
 
-// Clear all filters
 function clearFilters() {
   filterType.value = 'all';
   filterChromosome.value = 'all';
@@ -356,15 +244,8 @@ function clearFilters() {
   currentPage.value = 1;
 }
 
-// Reset to page 1 when CNV data changes
-watch(() => props.cnvs, () => {
-  currentPage.value = 1;
-});
-
-// Reset to page 1 when filters change
-watch([filterType, filterChromosome, filterConfidence], () => {
-  currentPage.value = 1;
-});
+watch(() => props.cnvs, () => { currentPage.value = 1; });
+watch([filterType, filterChromosome, filterConfidence], () => { currentPage.value = 1; });
 
 onMounted(() => {
   if (props.coverageData.length > 0) {
@@ -381,77 +262,51 @@ watch(() => props.coverageData, () => {
 });
 
 function renderPlotly() {
-  console.log('📈 Starting Plotly Coverage Plot render');
+  if (!plotlyContainer.value || !props.coverageData.length) return;
 
-  if (!plotlyContainer.value || !props.coverageData.length) {
-    console.warn('⚠️ Plotly container or coverage data not available');
-    return;
-  }
-
-  // Group data by chromosome
   const chromosomeData = {};
   props.coverageData.forEach(d => {
-    if (!chromosomeData[d.chromosome]) {
-      chromosomeData[d.chromosome] = [];
-    }
+    if (!chromosomeData[d.chromosome]) chromosomeData[d.chromosome] = [];
     chromosomeData[d.chromosome].push(d);
   });
 
-  // Create traces for each chromosome
-  const traces = Object.entries(chromosomeData).map(([chrom, data]) => {
-    return {
-      x: data.map(d => d.start),
-      y: data.map(d => d.normalized),
-      name: chrom,
-      type: 'scatter',
-      mode: 'lines',
-      line: {
-        width: 1
-      }
-    };
-  });
+  const traces = Object.entries(chromosomeData).map(([chrom, data]) => ({
+    x: data.map(d => d.start),
+    y: data.map(d => d.normalized),
+    name: chrom,
+    type: 'scatter',
+    mode: 'lines',
+    line: { width: 1 }
+  }));
 
-  // CRITICAL: Limit CNV shapes to prevent browser crash
-  // Filter to high/medium confidence, max 500 shapes
   const cnvsForShapes = props.cnvs
     .filter(cnv => cnv.confidence === 'high' || cnv.confidence === 'medium')
     .slice(0, 500);
 
-  console.log(`📊 Adding ${cnvsForShapes.length} CNV shapes (filtered from ${props.cnvs.length} total)`);
-
-  // Add CNV regions as shapes
-  const shapes = cnvsForShapes.map(cnv => {
-    return {
-      type: 'rect',
-      xref: 'x',
-      yref: 'paper',
-      x0: cnv.start,
-      x1: cnv.end,
-      y0: 0,
-      y1: 1,
-      fillcolor: cnv.type === 'amplification' ? 'rgba(255, 0, 0, 0.1)' : 'rgba(0, 0, 255, 0.1)',
-      line: {
-        width: 0
-      }
-    };
-  });
+  const shapes = cnvsForShapes.map(cnv => ({
+    type: 'rect',
+    xref: 'x',
+    yref: 'paper',
+    x0: cnv.start,
+    x1: cnv.end,
+    y0: 0,
+    y1: 1,
+    fillcolor: cnv.type === 'amplification' ? 'rgba(243, 139, 168, 0.15)' : 'rgba(137, 180, 250, 0.15)',
+    line: { width: 0 }
+  }));
 
   const layout = {
-    title: 'Normalized Coverage Across Genome',
-    xaxis: {
-      title: 'Genomic Position'
-    },
-    yaxis: {
-      title: 'Normalized Coverage'
-    },
+    title: { text: 'normalized coverage across genome', font: { size: 13, color: '#a6adc8' } },
+    xaxis: { title: 'genomic position', color: '#a6adc8', gridcolor: '#313244' },
+    yaxis: { title: 'normalized coverage', color: '#a6adc8', gridcolor: '#313244' },
     hovermode: 'closest',
     showlegend: true,
-    shapes: shapes,
-    plot_bgcolor: '#1f2937',
-    paper_bgcolor: '#1f2937',
-    font: {
-      color: '#fff'
-    }
+    shapes,
+    plot_bgcolor: '#1e1e2e',
+    paper_bgcolor: '#1e1e2e',
+    font: { family: 'JetBrains Mono, monospace', color: '#cdd6f4', size: 11 },
+    legend: { font: { color: '#a6adc8' } },
+    margin: { t: 40, b: 60, l: 60, r: 20 },
   };
 
   const config = {
@@ -464,35 +319,16 @@ function renderPlotly() {
 }
 
 function renderD3() {
-  console.log('🎨 Starting D3 CNV Overview render');
+  if (!d3Container.value) return;
+  if (!props.cnvs || props.cnvs.length === 0) return;
 
-  if (!d3Container.value) {
-    console.error('❌ d3Container ref is null');
-    return;
-  }
-
-  if (!props.cnvs || props.cnvs.length === 0) {
-    console.error('❌ No CNV data available');
-    return;
-  }
-
-  console.log(`📊 Total CNVs: ${props.cnvs.length}`);
-
-  // CRITICAL: Limit to prevent browser crash
-  // Only show high/medium confidence CNVs, max 500
   const cnvsToVisualize = props.cnvs
     .filter(cnv => cnv.confidence === 'high' || cnv.confidence === 'medium')
     .slice(0, 500);
 
-  console.log(`📊 Visualizing ${cnvsToVisualize.length} filtered CNVs`);
-
-  if (cnvsToVisualize.length === 0) {
-    console.warn('⚠️ No high/medium confidence CNVs to display');
-    return;
-  }
+  if (cnvsToVisualize.length === 0) return;
 
   try {
-    // Clear previous render
     d3.select(d3Container.value).selectAll('*').remove();
 
     const margin = { top: 40, right: 120, bottom: 60, left: 80 };
@@ -506,25 +342,21 @@ function renderD3() {
       .append('g')
       .attr('transform', `translate(${margin.left},${margin.top})`);
 
-    // Group CNVs by chromosome
     const chromosomes = [...new Set(cnvsToVisualize.map(c => c.chromosome))];
     const yScale = d3.scaleBand()
       .domain(chromosomes)
       .range([0, height])
       .padding(0.2);
 
-    // Find max position for x scale
     const maxPos = d3.max(cnvsToVisualize, d => d.end);
     const xScale = d3.scaleLinear()
       .domain([0, maxPos])
       .range([0, width]);
 
-    // Color scale
     const colorScale = d3.scaleOrdinal()
       .domain(['amplification', 'deletion'])
-      .range(['#ef4444', '#3b82f6']);
+      .range(['#f38ba8', '#89b4fa']);
 
-    // Draw CNV rectangles
     svg.selectAll('.cnv-rect')
       .data(cnvsToVisualize)
       .enter()
@@ -538,22 +370,23 @@ function renderD3() {
       .attr('opacity', 0.7)
       .on('mouseover', function(event, d) {
         d3.select(this).attr('opacity', 1);
-
-        // Show tooltip
-        const tooltip = d3.select('body').append('div')
+        d3.select('body').append('div')
           .attr('class', 'tooltip')
           .style('position', 'absolute')
-          .style('background', '#1f2937')
-          .style('color', '#fff')
-          .style('padding', '8px')
-          .style('border-radius', '4px')
+          .style('background', '#181825')
+          .style('color', '#cdd6f4')
+          .style('padding', '8px 12px')
+          .style('border-radius', '8px')
+          .style('border', '1px solid #313244')
+          .style('font-family', 'JetBrains Mono, monospace')
+          .style('font-size', '12px')
           .style('pointer-events', 'none')
           .style('z-index', '1000')
           .html(`
             <strong>${d.type}</strong><br/>
             ${d.chromosome}:${formatNumber(d.start)}-${formatNumber(d.end)}<br/>
-            Length: ${formatSize(d.length)}<br/>
-            Copy Number: ${d.copyNumber.toFixed(2)}
+            length: ${formatSize(d.length)}<br/>
+            copy number: ${d.copyNumber.toFixed(2)}
           `)
           .style('left', (event.pageX + 10) + 'px')
           .style('top', (event.pageY - 10) + 'px');
@@ -563,46 +396,46 @@ function renderD3() {
         d3.selectAll('.tooltip').remove();
       });
 
-    // Add axes
-    const xAxis = d3.axisBottom(xScale)
-      .tickFormat(d => formatNumber(d));
-
+    const xAxis = d3.axisBottom(xScale).tickFormat(d => formatNumber(d));
     svg.append('g')
       .attr('transform', `translate(0,${height})`)
       .call(xAxis)
       .selectAll('text')
-      .style('fill', '#fff');
-
-    const yAxis = d3.axisLeft(yScale);
+      .style('fill', '#a6adc8')
+      .style('font-size', '10px');
 
     svg.append('g')
-      .call(yAxis)
+      .call(d3.axisLeft(yScale))
       .selectAll('text')
-      .style('fill', '#fff');
+      .style('fill', '#a6adc8')
+      .style('font-size', '10px');
 
-    // Add axis labels
+    // Style axis lines
+    svg.selectAll('.domain, .tick line').style('stroke', '#313244');
+
     svg.append('text')
       .attr('x', width / 2)
       .attr('y', height + 50)
       .style('text-anchor', 'middle')
-      .style('fill', '#fff')
-      .text('Genomic Position');
+      .style('fill', '#6c7086')
+      .style('font-size', '11px')
+      .text('genomic position');
 
     svg.append('text')
       .attr('transform', 'rotate(-90)')
       .attr('x', -height / 2)
       .attr('y', -60)
       .style('text-anchor', 'middle')
-      .style('fill', '#fff')
-      .text('Chromosome');
+      .style('fill', '#6c7086')
+      .style('font-size', '11px')
+      .text('chromosome');
 
-    // Add legend
     const legend = svg.append('g')
       .attr('transform', `translate(${width + 20}, 0)`);
 
     const legendData = [
-      { type: 'amplification', label: 'Amplification' },
-      { type: 'deletion', label: 'Deletion' }
+      { type: 'amplification', label: 'amplification' },
+      { type: 'deletion', label: 'deletion' }
     ];
 
     legend.selectAll('.legend-item')
@@ -613,30 +446,26 @@ function renderD3() {
       .attr('transform', (d, i) => `translate(0, ${i * 25})`)
       .each(function(d) {
         const g = d3.select(this);
-
         g.append('rect')
-          .attr('width', 18)
-          .attr('height', 18)
+          .attr('width', 14)
+          .attr('height', 14)
+          .attr('rx', 2)
           .attr('fill', colorScale(d.type));
-
         g.append('text')
-          .attr('x', 24)
-          .attr('y', 14)
-          .style('fill', '#fff')
-          .style('font-size', '12px')
+          .attr('x', 20)
+          .attr('y', 11)
+          .style('fill', '#a6adc8')
+          .style('font-size', '11px')
           .text(d.label);
       });
 
-    console.log('✅ D3 render complete');
-
   } catch (error) {
-    console.error('❌ D3 rendering failed:', error);
-    // Show error message in the chart area
+    console.error('D3 rendering failed:', error);
     d3.select(d3Container.value)
       .append('div')
       .style('padding', '20px')
-      .style('color', 'red')
-      .text(`Failed to render CNV overview: ${error.message}`);
+      .style('color', '#f38ba8')
+      .text(`failed to render CNV overview: ${error.message}`);
   }
 }
 
@@ -650,16 +479,12 @@ function formatSize(bytes) {
   return `${(bytes / 1000000).toFixed(2)} Mb`;
 }
 
-function getConfidenceBadge(confidence) {
-  const badges = {
-    high: 'badge badge-success',
-    medium: 'badge badge-warning',
-    low: 'badge badge-ghost'
+function getConfidenceClass(confidence) {
+  const classes = {
+    high: 'text-green',
+    medium: 'text-peach',
+    low: 'text-overlay0'
   };
-  return badges[confidence] || 'badge';
+  return classes[confidence] || 'text-overlay1';
 }
 </script>
-
-<style scoped>
-/* Add any additional styles here */
-</style>
