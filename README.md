@@ -66,6 +66,25 @@ npm run start       # serve dist/ via server.js (used by Render)
 npm run preview     # vite preview (alternative)
 ```
 
+Note: the app is built with a base path of `/lungseq/`. When running locally with `npm run dev`, that means the app lives at http://localhost:3000/lungseq/, not at the root.
+
+## Run with Docker
+
+The repo ships a multi-stage Dockerfile that produces a small nginx image serving the built app at `/lungseq/` with the cross-origin isolation headers (`Cross-Origin-Opener-Policy`, `Cross-Origin-Embedder-Policy`) Pyodide needs.
+
+```bash
+# docker compose (easiest)
+docker compose up --build
+
+# or by hand
+docker build -t lungseq-analyzer .
+docker run --rm -p 8080:80 lungseq-analyzer
+```
+
+Then open http://localhost:8080/lungseq/. The bare host (http://localhost:8080/) redirects there.
+
+The headers are set inside the container, so the image works as a standalone deployment or sitting behind a reverse proxy that just forwards traffic — no need for the proxy to inject COOP/COEP itself.
+
 ## Project layout
 
 ```

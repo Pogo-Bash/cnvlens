@@ -2,6 +2,10 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
+  // App is served from /lungseq/ in production (nginx Docker image).
+  // Set this here so Vite emits asset URLs with the right prefix.
+  base: '/lungseq/',
+
   plugins: [
     vue(),
     // Custom plugin to ensure CORS headers on all responses
