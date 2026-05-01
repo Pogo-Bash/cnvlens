@@ -149,7 +149,6 @@
 }
 
 /* Consistent input rendering across browsers */
-input[type="file"],
 input[type="number"],
 select {
   -webkit-appearance: none;
@@ -157,9 +156,27 @@ select {
   appearance: none;
 }
 
-input[type="file"]::-webkit-file-upload-button,
-input[type="file"]::file-selector-button {
-  cursor: pointer;
+/* Styled file input */
+input[type="file"].input-field {
+  padding: 0;
+  border: 1px solid #313244;
+  background: #1e1e2e;
+}
+
+input[type="file"].input-field::file-selector-button {
+  @apply px-4 py-2 text-sm font-bold border-0 border-r border-surface0;
+  @apply bg-surface0 text-subtext1 cursor-pointer;
+  @apply hover:bg-surface1 hover:text-text transition-colors;
+  font-family: "JetBrains Mono", monospace;
+  margin-right: 0.75rem;
+}
+
+input[type="file"].input-field::-webkit-file-upload-button {
+  @apply px-4 py-2 text-sm font-bold border-0 border-r border-surface0;
+  @apply bg-surface0 text-subtext1 cursor-pointer;
+  @apply hover:bg-surface1 hover:text-text transition-colors;
+  font-family: "JetBrains Mono", monospace;
+  margin-right: 0.75rem;
 }
 
 @supports (-webkit-overflow-scrolling: touch) {
