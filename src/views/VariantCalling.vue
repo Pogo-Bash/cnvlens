@@ -38,7 +38,7 @@
         </svg>
         <div>
           <div class="font-bold">🐍 Python Variant Calling Ready</div>
-          <div class="text-xs">Using pure Python pileup + NumPy/SciPy for variant detection (WASM-powered)</div>
+          <div class="text-xs">Using pure Python pileup + NumPy for variant detection (WASM-powered)</div>
         </div>
       </div>
     </div>
@@ -245,10 +245,10 @@
           <div class="stat-desc">Single nucleotide variants</div>
         </div>
 
-        <div class="stat">
+        <div class="stat" title="Indel calling is not yet implemented in this proof-of-concept. Only SNVs are detected.">
           <div class="stat-title">Indels</div>
-          <div class="stat-value text-secondary">{{ indelCount }}</div>
-          <div class="stat-desc">Insertions + Deletions</div>
+          <div class="stat-value text-base-content/40">N/A</div>
+          <div class="stat-desc text-warning">Not implemented</div>
         </div>
 
         <div class="stat">
@@ -263,15 +263,16 @@
         <div class="card-body">
           <h2 class="card-title">Detected Variants</h2>
 
+          <!-- Note about indels -->
+          <div class="alert alert-info text-sm mb-4">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-5 h-5">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            <span>Only SNVs are detected. Indel calling (insertions/deletions) is not yet implemented in this proof-of-concept.</span>
+          </div>
+
           <!-- Filters -->
           <div class="flex flex-wrap gap-2 mb-4">
-            <select class="select select-bordered select-sm" v-model="filterType">
-              <option value="all">All Types</option>
-              <option value="SNV">SNVs Only</option>
-              <option value="INS">Insertions Only</option>
-              <option value="DEL">Deletions Only</option>
-            </select>
-
             <select class="select select-bordered select-sm" v-model="filterChromosome">
               <option value="all">All Chromosomes</option>
               <option v-for="chr in uniqueChromosomes" :key="chr" :value="chr">{{ chr }}</option>
@@ -380,7 +381,7 @@
       </svg>
       <div>
         <h3 class="font-bold">Getting Started</h3>
-        <div class="text-sm">Upload a BAM file to detect variants using Python-based pileup analysis (NumPy + SciPy running in WebAssembly).</div>
+        <div class="text-sm">Upload a BAM file to detect SNVs using Python-based pileup analysis (NumPy running in WebAssembly via Pyodide). Indel calling is not yet implemented.</div>
       </div>
     </div>
   </div>
@@ -410,7 +411,6 @@ const results = ref(null);
 const storageInfo = ref(null);
 
 // Filtering
-const filterType = ref('all');
 const filterChromosome = ref('all');
 const filterMinAF = ref(0);
 
@@ -430,10 +430,6 @@ const snvCount = computed(() => {
   return results.value?.variants.filter(v => v.type === 'SNV').length || 0;
 });
 
-const indelCount = computed(() => {
-  return results.value?.variants.filter(v => v.type === 'INS' || v.type === 'DEL').length || 0;
-});
-
 const uniqueChromosomes = computed(() => {
   if (!results.value?.variants) return [];
   const chroms = new Set(results.value.variants.map(v => v.chrom));
@@ -444,10 +440,6 @@ const filteredVariants = computed(() => {
   if (!results.value?.variants) return [];
 
   let filtered = results.value.variants;
-
-  if (filterType.value !== 'all') {
-    filtered = filtered.filter(v => v.type === filterType.value);
-  }
 
   if (filterChromosome.value !== 'all') {
     filtered = filtered.filter(v => v.chrom === filterChromosome.value);
