@@ -9,7 +9,11 @@ class AnalysisService {
   constructor() {
     this.pyodide = null;
     this.pyodidePool = null;
-    this.useParallelProcessing = false; // Feature flag for multi-threading (disabled by default)
+    // Multi-threaded Pyodide pool exists but is intentionally disabled.
+    // See src/composables/usePyodidePool.js for why. Flip this to true
+    // (and ensure the pool is initialized) to route >50MB BAMs through
+    // the parallel path.
+    this.useParallelProcessing = false;
   }
 
   /**

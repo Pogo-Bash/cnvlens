@@ -1,9 +1,23 @@
 /**
- * Multi-threaded Pyodide Worker Pool
- * Enables parallel BAM processing across multiple CPU cores
+ * Multi-threaded Pyodide Worker Pool — SCAFFOLDED, NOT IN USE.
+ *
+ * This composable spins up N Pyodide workers and splits chromosomes
+ * across them so a single BAM analysis can run in parallel. The pool
+ * is initialized when CNVAnalysis.vue mounts (so the status panel can
+ * render), but the actual analysis path always goes through the
+ * single-threaded code in analysis-service.js — see the
+ * `useParallelProcessing = false` flag there.
+ *
+ * Why it's off: the parallel path was built late in the project as an
+ * experiment. Each worker reads the full BAM (no byte-range chunking,
+ * because BGZF block boundaries make that messy without an index), so
+ * we re-parse the file N times. For the file sizes this proof-of-
+ * concept was tested with, the single-threaded path was acceptable
+ * and the parallel one wasn't worth the extra ~120 MB/worker memory
+ * cost. Kept here as a starting point if anyone picks it up later.
  */
 
-import { ref, computed } from 'vue';
+import { ref } from 'vue';
 
 const WORKER_COUNT = Math.min(navigator.hardwareConcurrency || 4, 4); // Max 4 workers
 
