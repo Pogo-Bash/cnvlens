@@ -2,67 +2,150 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  html {
+    @apply bg-crust text-text antialiased;
+    font-family: "JetBrains Mono", monospace;
+  }
+
+  body {
+    @apply min-h-screen;
+  }
+
+  ::selection {
+    @apply bg-mauve/20 text-mauve;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #11111b;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #313244;
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #cba6f7;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #313244 #11111b;
+  }
+
+  *:focus-visible {
+    outline: 2px solid #cba6f7;
+    outline-offset: 2px;
+  }
+}
+
 @layer components {
-  .chromosome-bar {
-    @apply h-8 rounded-lg shadow-md cursor-pointer transition-all hover:shadow-lg;
+  /* Static container card — stable border, no hover glow */
+  .card-static {
+    @apply border border-surface0 rounded-lg bg-base p-5;
   }
 
-  .variant-card {
-    @apply bg-base-200 p-4 rounded-lg shadow hover:shadow-md transition-all;
+  /* Clickable card — purple border glow on hover */
+  .card-link {
+    @apply block border border-surface0 rounded-lg p-5 transition-all duration-200;
+    @apply hover:border-mauve/40;
   }
 
-  .pipeline-step {
-    @apply flex items-center gap-4 p-6 bg-base-100 rounded-lg border-2 border-base-300;
+  /* Terminal log pane — recessed (crust bg when surrounding is base) */
+  .terminal-log {
+    @apply bg-crust border border-surface0 rounded-lg p-4 font-mono text-sm text-subtext1;
+    @apply overflow-y-auto max-h-[480px];
   }
 
-  .pipeline-step.active {
-    @apply border-primary;
-    background-color: rgba(99, 102, 241, 0.1);
+  /* Status dot + text rows */
+  .status-row {
+    @apply flex items-center gap-2 text-sm py-1.5 px-3 border border-surface0 rounded-lg;
+  }
+  .status-dot {
+    @apply w-2 h-2 rounded-full flex-shrink-0;
   }
 
-  .pipeline-step.complete {
-    @apply border-success;
-    background-color: rgba(34, 197, 94, 0.1);
+  /*
+   * Tab navigation
+   * The -mb-px on .tab-item overlaps .tab-nav's border-b (1px).
+   * The border-b-2 on .tab-item sits on top of it.
+   * Don't change one without the other.
+   */
+  .tab-nav {
+    @apply flex gap-6 border-b border-surface0 mb-6;
+  }
+  .tab-item {
+    @apply pb-2 text-sm text-overlay1 transition-colors border-b-2 border-transparent -mb-px;
+    @apply hover:text-text;
+  }
+  .tab-item.active,
+  .tab-item.router-link-active {
+    @apply text-mauve border-mauve;
+  }
+
+  /* Form inputs */
+  .input-field {
+    @apply w-full bg-base border border-surface0 rounded-lg px-3 py-2 text-sm text-text;
+    @apply placeholder:text-overlay0;
+    @apply focus:border-mauve focus:outline-none focus:ring-1 focus:ring-mauve/30;
+    @apply transition-colors;
+  }
+  .input-label {
+    @apply block text-sm font-bold text-overlay1 mb-1;
+  }
+  .input-helper {
+    @apply text-xs text-overlay0 mt-1;
+  }
+
+  /* Buttons */
+  .btn-primary {
+    @apply inline-flex items-center gap-2 px-4 py-2 text-sm font-bold;
+    @apply border border-mauve rounded-lg text-crust bg-mauve;
+    @apply hover:bg-lavender hover:border-lavender transition-all duration-200;
+  }
+  .btn-primary:focus-visible {
+    outline: 2px solid #cdd6f4;
+    outline-offset: 2px;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center gap-2 px-4 py-2 text-sm;
+    @apply border border-surface1 rounded-lg text-subtext1;
+    @apply hover:text-text hover:border-mauve/50 transition-all duration-200;
+  }
+  .btn-danger {
+    @apply inline-flex items-center gap-2 px-4 py-2 text-sm;
+    @apply border border-red/30 rounded-lg text-red;
+    @apply hover:border-red hover:bg-red/10 transition-all duration-200;
+  }
+
+  /* Data tables */
+  .data-table {
+    @apply w-full text-sm;
+  }
+  .data-table thead th {
+    @apply text-left text-xs font-bold text-overlay1 uppercase tracking-wider;
+    @apply py-2 px-3 border-b border-surface0 sticky top-0 bg-base;
+  }
+  .data-table tbody td {
+    @apply py-2 px-3 border-b border-surface0/50 font-mono text-subtext1;
+  }
+  .data-table tbody tr:hover {
+    @apply bg-surface0/30;
+  }
+  .data-table td.numeric {
+    @apply text-right tabular-nums;
+  }
+
+  /* Spinner */
+  .spinner {
+    @apply animate-spin rounded-full h-8 w-8 border-2 border-mauve border-t-transparent;
   }
 }
 
-/* Cross-browser compatibility fixes */
-html {
-  scroll-behavior: smooth;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-/* Firefox scrollbar styling */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(155, 155, 155, 0.5) transparent;
-}
-
-/* Webkit/Chromium scrollbar styling */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: rgba(155, 155, 155, 0.5);
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(155, 155, 155, 0.7);
-}
-
-.spinner {
-  @apply animate-spin rounded-full h-12 w-12 border-4 border-primary border-t-transparent;
-}
-
-/* Ensure consistent input rendering across browsers */
+/* Consistent input rendering across browsers */
 input[type="file"],
 input[type="number"],
 select {
@@ -71,22 +154,11 @@ select {
   appearance: none;
 }
 
-/* Fix for Firefox file input button */
-input[type="file"]::-webkit-file-upload-button {
-  cursor: pointer;
-}
-
+input[type="file"]::-webkit-file-upload-button,
 input[type="file"]::file-selector-button {
   cursor: pointer;
 }
 
-/* Ensure consistent focus styles */
-*:focus-visible {
-  outline: 2px solid currentColor;
-  outline-offset: 2px;
-}
-
-/* Fix for Safari sticky positioning */
 @supports (-webkit-overflow-scrolling: touch) {
   .sticky {
     position: -webkit-sticky;
