@@ -27,8 +27,14 @@ async function initializePyodide() {
         progress: 10
       });
 
-      // Import Pyodide using importScripts (classic worker)
-      importScripts('/pyodide/pyodide.js');
+      // Import Pyodide using importScripts (classic worker).
+      // Resolve the path relative to the worker's served location so it
+      // works whether the app is mounted at '/' or a sub-path like
+      // '/lungseq/'. In Vite dev the worker lives under '/.../src/...';
+      // in prod builds it lives under '/.../assets/...'.
+      const baseMatch = self.location.pathname.match(/^(.*?)(?:\/src\/|\/assets\/)/);
+      const basePath = baseMatch ? baseMatch[1] + '/' : '/';
+      importScripts(basePath + 'pyodide/pyodide.js');
 
       self.postMessage({
         type: 'status',
