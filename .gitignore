@@ -43,11 +43,12 @@ yarn-error.log*
 
 public/wasm/*.wasm
 
-# Large data files
+# Large data files (except bundled sample data)
 
 *.bam
-
 *.bam.bai
+!public/sample-data/*.bam
+!public/sample-data/*.bam.bai
 
 *.vcf.gz
 
