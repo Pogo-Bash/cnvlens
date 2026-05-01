@@ -50,9 +50,25 @@
           class="input-field cursor-pointer"
           accept=".bam"
           @change="handleFileSelect"
-          :disabled="analyzing"
+          :disabled="analyzing || loadingSample"
         />
         <p v-if="selectedFile" class="text-xs text-green mt-1">{{ selectedFile.name }} ({{ formatFileSize(selectedFile.size) }})</p>
+      </div>
+
+      <!-- Sample Data -->
+      <div class="mb-4">
+        <button
+          class="btn-ghost text-xs"
+          @click="loadSampleData"
+          :disabled="analyzing || loadingSample"
+        >
+          <span v-if="!loadingSample">try with sample data</span>
+          <span v-else class="flex items-center gap-2">
+            <span class="spinner !h-3 !w-3 !border-subtext0 !border-t-transparent"></span>
+            loading sample...
+          </span>
+        </button>
+        <p class="text-xs text-overlay0 mt-1">NA12878 exome — EGFR region (chr7, GRCh37). 2.4MB, ~57x in captured exons. ~20-40s to analyze.</p>
       </div>
 
       <!-- Filters -->
@@ -252,6 +268,13 @@
       <span class="status-dot bg-blue"></span>
       <span class="text-sm text-subtext0">upload a BAM file to detect SNVs using python-based pileup analysis. indel calling not yet implemented.</span>
     </div>
+
+    <!-- Attribution -->
+    <p class="text-xs text-overlay0 mt-4">
+      sample data: NA12878 exome slice from the
+      <a href="https://www.internationalgenome.org/" target="_blank" rel="noopener" class="underline hover:text-subtext0">1000 Genomes Project</a>,
+      released under the 1000 Genomes data use policy (unrestricted).
+    </p>
   </div>
 </template>
 
@@ -267,6 +290,7 @@ const variantCaller = useVariantCaller();
 
 // State
 const selectedFile = ref(null);
+const loadingSample = ref(false);
 const minDepth = ref(10);
 const minBaseQuality = ref(20);
 const minMappingQuality = ref(20);
@@ -367,6 +391,21 @@ function handleFileSelect(event) {
   if (file) {
     selectedFile.value = file;
     error.value = null;
+  }
+}
+
+async function loadSampleData() {
+  loadingSample.value = true;
+  error.value = null;
+  try {
+    const response = await fetch(import.meta.env.BASE_URL + 'sample-data/NA12878_EGFR.bam');
+    if (!response.ok) throw new Error(`Failed to fetch sample BAM: ${response.status}`);
+    const blob = await response.blob();
+    selectedFile.value = new File([blob], 'NA12878_EGFR.bam', { type: 'application/octet-stream' });
+  } catch (err) {
+    error.value = err.message || 'Failed to load sample data';
+  } finally {
+    loadingSample.value = false;
   }
 }
 
