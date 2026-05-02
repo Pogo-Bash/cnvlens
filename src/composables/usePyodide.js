@@ -111,6 +111,11 @@ export function usePyodide() {
 
   /**
    * Analyze BAM file
+   * @param {ArrayBuffer} fileData - BAM file data
+   * @param {Object} options - Analysis options
+   * @param {ArrayBuffer} [options.baiData] - Optional BAI index data
+   * @param {Object} [options.referenceSeqs] - Optional {chrom: sequence} dict
+   * @param {string} [options.segmentationMethod] - 'threshold' or 'cbs_lite'
    */
   const analyzeBam = async (fileData, options = {}) => {
     if (!isReady.value) {
@@ -123,6 +128,11 @@ export function usePyodide() {
 
   /**
    * Call variants from BAM file
+   * @param {ArrayBuffer} fileData - BAM file data
+   * @param {Object} options - Variant calling options
+   * @param {ArrayBuffer} [options.baiData] - Optional BAI index data
+   * @param {Object} [options.referenceSeqs] - Optional {chrom: sequence} dict
+   * @param {number} [options.minStrandBias] - Min strand bias (default 0.1)
    */
   const callVariants = async (fileData, options = {}) => {
     if (!isReady.value) {

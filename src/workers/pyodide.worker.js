@@ -1,12 +1,12 @@
 /**
  * Pyodide Web Worker
  * Full Python-based bioinformatics analysis pipeline
- * Uses pysam, NumPy, SciPy for genomics analysis
+ * Uses NumPy for genomics analysis
  */
 
 // Log worker type for debugging
-console.log('🔧 Pyodide worker starting...');
-console.log('🔧 Worker type:', typeof importScripts !== 'undefined' ? 'CLASSIC ✅' : 'MODULE ❌');
+console.log('Pyodide worker starting...');
+console.log('Worker type:', typeof importScripts !== 'undefined' ? 'CLASSIC' : 'MODULE');
 
 let pyodide = null;
 let isInitialized = false;
@@ -28,10 +28,6 @@ async function initializePyodide() {
       });
 
       // Import Pyodide using importScripts (classic worker).
-      // Resolve the path relative to the worker's served location so it
-      // works whether the app is mounted at '/' or a sub-path like
-      // '/lungseq/'. In Vite dev the worker lives under '/.../src/...';
-      // in prod builds it lives under '/.../assets/...'.
       const baseMatch = self.location.pathname.match(/^(.*?)(?:\/src\/|\/assets\/)/);
       const basePath = baseMatch ? baseMatch[1] + '/' : '/';
       importScripts(basePath + 'pyodide/pyodide.js');
@@ -53,12 +49,10 @@ async function initializePyodide() {
         progress: 30
       });
 
-      // Load only NumPy (SciPy removed to save ~20MB memory)
       try {
         console.log('Loading NumPy...');
         await pyodide.loadPackage('numpy');
-        console.log('✓ NumPy loaded');
-
+        console.log('NumPy loaded');
       } catch (error) {
         console.error('Failed to load NumPy:', error);
         throw new Error(`NumPy loading failed: ${error.message}`);
@@ -77,19 +71,19 @@ async function initializePyodide() {
 import sys
 print(f"Python {sys.version} ready")
 
-# Test NumPy import
 try:
     import numpy as np
-    print(f"✓ NumPy {np.__version__} loaded")
+    print(f"NumPy {np.__version__} loaded")
 except ImportError as e:
-    print(f"✗ NumPy import failed: {e}")
+    print(f"NumPy import failed: {e}")
     raise
 
-# Other imports
 import json
 import struct
 import gzip
 import math
+import time
+from collections import defaultdict
         `);
       } catch (error) {
         console.error('Package import test failed:', error);
@@ -106,64 +100,194 @@ import struct
 import gzip
 import sys
 import math
+import time
+from collections import defaultdict
 
-# Pure Python BAM parser with streaming BGZF decompression
+# ═══════════════════════════════════════════════════════════
+# BAI INDEX READER — Part 2
+# ═══════════════════════════════════════════════════════════
+
+class BaiIndexReader:
+    """
+    Parse BAI binary index format per SAMtools spec.
+    Virtual offset = (coffset << 16) | uoffset
+    """
+
+    def __init__(self, bai_data):
+        self.data = bai_data
+        self.pos = 0
+        self.references = []
+        self._parse()
+
+    def _read_int32(self):
+        val = struct.unpack_from('<i', self.data, self.pos)[0]
+        self.pos += 4
+        return val
+
+    def _read_uint32(self):
+        val = struct.unpack_from('<I', self.data, self.pos)[0]
+        self.pos += 4
+        return val
+
+    def _read_uint64(self):
+        val = struct.unpack_from('<Q', self.data, self.pos)[0]
+        self.pos += 8
+        return val
+
+    def _parse(self):
+        # Magic: BAI\\1
+        magic = self.data[0:4]
+        if magic != b'BAI\\x01':
+            raise ValueError(f"Not a valid BAI file (magic: {magic!r})")
+        self.pos = 4
+
+        n_ref = self._read_int32()
+
+        for _ in range(n_ref):
+            ref_data = {'bins': {}, 'intervals': []}
+
+            # Bins
+            n_bin = self._read_int32()
+            for _ in range(n_bin):
+                bin_id = self._read_uint32()
+                n_chunk = self._read_int32()
+                chunks = []
+                for _ in range(n_chunk):
+                    chunk_beg = self._read_uint64()
+                    chunk_end = self._read_uint64()
+                    chunks.append((chunk_beg, chunk_end))
+                ref_data['bins'][bin_id] = chunks
+
+            # Linear index
+            n_intv = self._read_int32()
+            for _ in range(n_intv):
+                ioffset = self._read_uint64()
+                ref_data['intervals'].append(ioffset)
+
+            self.references.append(ref_data)
+
+    @staticmethod
+    def _reg2bins(beg, end):
+        """Return list of bins that overlap [beg, end) per BAM spec binning scheme."""
+        bins = [0]
+        for shift, offset in [(26, 1), (23, 9), (20, 73), (17, 585), (14, 4681)]:
+            for k in range(offset + (beg >> shift), offset + (end >> shift) + 1):
+                bins.append(k)
+        return bins
+
+    def get_chunks_for_region(self, ref_id, start, end):
+        """Get chunks covering a specific region [start, end)."""
+        if ref_id >= len(self.references):
+            return []
+
+        ref = self.references[ref_id]
+        bins_to_check = self._reg2bins(start, end)
+
+        chunks = []
+        for bin_id in bins_to_check:
+            if bin_id in ref['bins']:
+                chunks.extend(ref['bins'][bin_id])
+
+        if not chunks:
+            return []
+
+        # Use linear index for lower bound
+        lin_idx = start >> 14  # 16kb tiles
+        min_offset = 0
+        if lin_idx < len(ref['intervals']):
+            min_offset = ref['intervals'][lin_idx]
+
+        # Filter chunks by linear index lower bound
+        filtered = [(beg, end_vo) for beg, end_vo in chunks if end_vo > min_offset]
+
+        # Merge overlapping chunks
+        if not filtered:
+            return []
+        filtered.sort()
+        merged = [filtered[0]]
+        for beg, end_vo in filtered[1:]:
+            if beg <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], end_vo))
+            else:
+                merged.append((beg, end_vo))
+
+        return merged
+
+    def get_chunks_for_chromosome(self, ref_id):
+        """Get all chunks for an entire chromosome."""
+        if ref_id >= len(self.references):
+            return []
+
+        ref = self.references[ref_id]
+        chunks = []
+        for bin_id, bin_chunks in ref['bins'].items():
+            chunks.extend(bin_chunks)
+
+        if not chunks:
+            return []
+
+        chunks.sort()
+        # Merge overlapping
+        merged = [chunks[0]]
+        for beg, end_vo in chunks[1:]:
+            if beg <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], end_vo))
+            else:
+                merged.append((beg, end_vo))
+
+        return merged
+
+
+# ═══════════════════════════════════════════════════════════
+# STREAMING BAM READER — Parts 1 & 2
+# ═══════════════════════════════════════════════════════════
+
+# Pre-computed lookup table for BAM base encoding
+_SEQ_LOOKUP = np.array(list('=ACMGRSVTWYHKDBN'), dtype='U1')
+
 class SimpleBamReader:
     """
-    Simplified BAM file reader for basic operations
-    Streams BGZF blocks on-demand (no full decompression!)
+    Streaming BAM file reader with BGZF decompression.
+    Supports optional BAI index for seeking.
     """
 
     def __init__(self, bam_data):
-        """Initialize with BGZF compressed BAM file data"""
         self.compressed_data = bam_data
         self.compressed_pos = 0
         self.uncompressed_buffer = b''
         self.buffer_offset = 0
         self.references = []
         self.reference_lengths = []
+        self.bai_index = None
 
-        print(f"Initializing streaming BAM reader ({len(bam_data)} bytes compressed)")
+    def set_index(self, bai_data):
+        """Attach a BAI index for seek-based iteration."""
+        self.bai_index = BaiIndexReader(bai_data)
 
     def read_bgzf_block(self):
-        """Read and decompress one BGZF block"""
+        """Read and decompress one BGZF block."""
         if self.compressed_pos >= len(self.compressed_data):
             return None
 
         try:
-            # BGZF block structure:
-            # - Gzip header with extra fields
-            # - Compressed data
-            # - CRC and size footer
-
-            # Find start of next block
             start_pos = self.compressed_pos
 
-            # Read gzip header (minimum 10 bytes)
             if start_pos + 18 > len(self.compressed_data):
                 return None
 
             header = self.compressed_data[start_pos:start_pos+18]
 
-            # Check gzip magic
             if header[0:2] != b'\\x1f\\x8b':
                 return None
 
-            # Get block size from BGZF extra field (BSIZE)
-            # BGZF stores block size - 1 in bytes 16-17
             bsize = struct.unpack('<H', header[16:18])[0]
             block_size = bsize + 1
 
-            # Read entire block
             if start_pos + block_size > len(self.compressed_data):
                 return None
 
             block = self.compressed_data[start_pos:start_pos+block_size]
-
-            # Decompress using gzip
             decompressed = gzip.decompress(block)
-
-            # Move to next block
             self.compressed_pos = start_pos + block_size
 
             return decompressed
@@ -173,83 +297,79 @@ class SimpleBamReader:
             return None
 
     def fill_buffer(self, min_bytes=65536):
-        """Fill uncompressed buffer by reading BGZF blocks"""
-        while len(self.uncompressed_buffer) - self.buffer_offset < min_bytes:
+        """Fill uncompressed buffer by reading up to 8 BGZF blocks."""
+        blocks_read = 0
+        while len(self.uncompressed_buffer) - self.buffer_offset < min_bytes and blocks_read < 8:
             block = self.read_bgzf_block()
             if block is None:
                 break
             self.uncompressed_buffer += block
+            blocks_read += 1
 
     def read_bytes(self, n):
-        """Read n bytes from uncompressed stream"""
-        # Ensure buffer has enough data
+        """Read n bytes from uncompressed stream."""
         while len(self.uncompressed_buffer) - self.buffer_offset < n:
             block = self.read_bgzf_block()
             if block is None:
-                # Not enough data
                 return None
             self.uncompressed_buffer += block
 
-        # Read from buffer
         data = self.uncompressed_buffer[self.buffer_offset:self.buffer_offset+n]
         self.buffer_offset += n
 
-        # Trim buffer periodically to save memory
-        if self.buffer_offset > 1048576:  # 1MB
+        # Trim buffer at 4MB to save memory
+        if self.buffer_offset > 4194304:
             self.uncompressed_buffer = self.uncompressed_buffer[self.buffer_offset:]
             self.buffer_offset = 0
 
         return data
 
-    def read_header(self):
-        """Read BAM header from first BGZF block"""
-        print("Reading BAM header...")
+    def seek_to_voffset(self, voffset):
+        """Seek to a virtual offset (coffset << 16 | uoffset)."""
+        coffset = voffset >> 16
+        uoffset = voffset & 0xFFFF
 
-        # Fill initial buffer
+        self.compressed_pos = coffset
+        self.uncompressed_buffer = b''
+        self.buffer_offset = 0
+
+        # Fill buffer and advance to uoffset
+        self.fill_buffer(uoffset + 65536)
+        self.buffer_offset = uoffset
+
+    def read_header(self):
+        """Read BAM header from first BGZF block."""
         self.fill_buffer(65536)
 
-        # BAM magic number
         magic = self.read_bytes(4)
         if magic != b'BAM\\x01':
             raise ValueError(f"Not a valid BAM file (magic: {magic!r})")
 
-        # Read SAM header length
         l_text_bytes = self.read_bytes(4)
         l_text = struct.unpack('<I', l_text_bytes)[0]
-
-        # Skip SAM header text
         self.read_bytes(l_text)
 
-        # Read number of reference sequences
         n_ref_bytes = self.read_bytes(4)
         n_ref = struct.unpack('<I', n_ref_bytes)[0]
 
-        print(f"Found {n_ref} reference sequences")
-
-        # Read reference sequence names and lengths
         for _ in range(n_ref):
             l_name_bytes = self.read_bytes(4)
             l_name = struct.unpack('<I', l_name_bytes)[0]
-
             name_bytes = self.read_bytes(l_name)
-            name = name_bytes[:-1].decode('utf-8')  # Remove null terminator
-
+            name = name_bytes[:-1].decode('utf-8')
             l_ref_bytes = self.read_bytes(4)
             l_ref = struct.unpack('<I', l_ref_bytes)[0]
-
             self.references.append(name)
             self.reference_lengths.append(l_ref)
 
     def read_alignment(self):
-        """Read a single alignment record from stream"""
-        # Read block size
+        """Read a single alignment record with NumPy-vectorized decoding."""
         block_size_bytes = self.read_bytes(4)
         if block_size_bytes is None or len(block_size_bytes) < 4:
             return None
 
         block_size = struct.unpack('<I', block_size_bytes)[0]
 
-        # Read core alignment data (first 32 bytes of block)
         core_data = self.read_bytes(32)
         if core_data is None or len(core_data) < 32:
             return None
@@ -267,50 +387,42 @@ class SimpleBamReader:
 
         l_seq = struct.unpack('<I', core_data[16:20])[0]
 
-        # Parse variable-length data section
-        # 1. Read name (skip it)
+        # Read name (skip)
         read_name_data = self.read_bytes(l_read_name)
         if read_name_data is None:
             return None
 
-        # 2. CIGAR (skip it)
+        # CIGAR (skip)
         cigar_bytes = n_cigar_op * 4
         cigar_data = self.read_bytes(cigar_bytes)
         if cigar_data is None and cigar_bytes > 0:
             return None
 
-        # 3. Sequence (decode it - needed for variant calling!)
-        seq_bytes = (l_seq + 1) // 2  # 4 bits per base, 2 bases per byte
-        seq_data = self.read_bytes(seq_bytes)
+        # Sequence — NumPy vectorized decoding (Part 1.1)
+        seq_bytes_len = (l_seq + 1) // 2
+        seq_data = self.read_bytes(seq_bytes_len)
 
         seq = ''
         if seq_data and l_seq > 0:
-            # BAM base encoding: =ACMGRSVTWYHKDBN (values 0-15)
-            seq_lookup = '=ACMGRSVTWYHKDBN'
-            for i in range(l_seq):
-                byte_idx = i // 2
-                if byte_idx < len(seq_data):
-                    byte_val = seq_data[byte_idx]
-                    # Each byte has 2 bases: high nibble (first base), low nibble (second base)
-                    if i % 2 == 0:
-                        # First base in byte (high nibble)
-                        base_idx = (byte_val >> 4) & 0xF
-                    else:
-                        # Second base in byte (low nibble)
-                        base_idx = byte_val & 0xF
-                    seq += seq_lookup[base_idx]
+            raw = np.frombuffer(seq_data, dtype=np.uint8)
+            # Extract high and low nibbles
+            high = (raw >> 4) & 0xF
+            low = raw & 0xF
+            # Interleave: high[0], low[0], high[1], low[1], ...
+            nibbles = np.empty(len(raw) * 2, dtype=np.uint8)
+            nibbles[0::2] = high
+            nibbles[1::2] = low
+            # Trim to actual sequence length
+            nibbles = nibbles[:l_seq]
+            # Look up bases
+            seq = ''.join(_SEQ_LOOKUP[nibbles])
 
-        # 4. Quality scores (extract them - needed for variant calling!)
+        # Quality scores — as numpy array (Part 1.1)
         qual_data = self.read_bytes(l_seq)
+        qual = np.frombuffer(qual_data, dtype=np.uint8).copy() if qual_data and l_seq > 0 else np.array([], dtype=np.uint8)
 
-        qual = []
-        if qual_data and l_seq > 0:
-            # Quality scores are stored as Phred+33 ASCII values
-            # Convert to numeric Phred scores
-            qual = [q for q in qual_data]
-
-        # Skip any remaining auxiliary data (tags)
-        bytes_read = 32 + l_read_name + cigar_bytes + seq_bytes + l_seq
+        # Skip remaining auxiliary data
+        bytes_read = 32 + l_read_name + cigar_bytes + seq_bytes_len + l_seq
         remaining = block_size - bytes_read
         if remaining > 0:
             self.read_bytes(remaining)
@@ -325,26 +437,43 @@ class SimpleBamReader:
             'is_unmapped': (flag & 0x4) != 0,
             'is_duplicate': (flag & 0x400) != 0,
             'is_secondary': (flag & 0x100) != 0,
+            'is_reverse': (flag & 0x10) != 0,
         }
 
+    def iterate_chunks(self, chunks):
+        """Generator yielding alignments from indexed chunks."""
+        for chunk_beg, chunk_end in chunks:
+            self.seek_to_voffset(chunk_beg)
+            # Read alignments until we pass chunk_end
+            while True:
+                # Check if we've passed the end virtual offset
+                current_coffset = self.compressed_pos
+                current_uoffset = self.buffer_offset
+                current_voffset = (current_coffset << 16) | min(current_uoffset, 0xFFFF)
+
+                # Approximate: if compressed pos exceeds chunk end's coffset, stop
+                end_coffset = chunk_end >> 16
+                if current_coffset > end_coffset:
+                    break
+
+                aln = self.read_alignment()
+                if aln is None:
+                    break
+                yield aln
+
     def calculate_coverage(self, chrom=None, chroms=None, window_size=10000):
-        """
-        Calculate coverage across genome
-        Args:
-            chrom: Single chromosome to process (legacy)
-            chroms: List of chromosomes to process (for parallel processing)
-            window_size: Window size in bp
-        """
+        """Calculate coverage across genome."""
+        t_start = time.time()
         self.read_header()
+        t_header = time.time()
+        print(f"  [timing] Header read: {t_header - t_start:.3f}s")
 
         # Build chromosome filter set
         chrom_filter = None
         if chroms:
             chrom_filter = set(chroms)
-            print(f"Processing chromosomes: {', '.join(chroms)}")
         elif chrom:
             chrom_filter = {chrom}
-            print(f"Processing chromosome: {chrom}")
 
         # Initialize coverage arrays
         coverage = {}
@@ -355,69 +484,79 @@ class SimpleBamReader:
             coverage[ref_name] = np.zeros(num_windows, dtype=np.int32)
 
         if not coverage:
-            print("⚠️ No matching chromosomes found in BAM file")
+            print("No matching chromosomes found in BAM file")
             return {}, 0
 
-        # Stream through alignments
-        print(f"Streaming through alignments...")
+        # Stream through alignments (use index if available)
         read_count = 0
         last_report = 0
 
-        while True:
-            aln = self.read_alignment()
-            if aln is None:
-                break
+        if self.bai_index and chrom_filter:
+            # Indexed path: seek to relevant chunks
+            for ref_name in chrom_filter:
+                if ref_name not in coverage:
+                    continue
+                ref_id = self.references.index(ref_name) if ref_name in self.references else -1
+                if ref_id < 0:
+                    continue
+                chunks = self.bai_index.get_chunks_for_chromosome(ref_id)
+                if not chunks:
+                    continue
+                for aln in self.iterate_chunks(chunks):
+                    read_count += 1
+                    if aln['is_unmapped'] or aln['is_duplicate'] or aln['is_secondary']:
+                        continue
+                    if aln['refID'] != ref_id:
+                        continue
+                    window_idx = aln['pos'] // window_size
+                    if 0 <= window_idx < len(coverage[ref_name]):
+                        coverage[ref_name][window_idx] += 1
+        else:
+            # Full scan path
+            while True:
+                aln = self.read_alignment()
+                if aln is None:
+                    break
+                read_count += 1
+                if read_count - last_report >= 100000:
+                    print(f"  Processed {read_count:,} reads...")
+                    last_report = read_count
+                if aln['is_unmapped'] or aln['is_duplicate'] or aln['is_secondary']:
+                    continue
+                if aln['refID'] < 0 or aln['refID'] >= len(self.references):
+                    continue
+                ref_name = self.references[aln['refID']]
+                if ref_name not in coverage:
+                    continue
+                window_idx = aln['pos'] // window_size
+                if 0 <= window_idx < len(coverage[ref_name]):
+                    coverage[ref_name][window_idx] += 1
 
-            read_count += 1
-
-            # Progress reporting every 100k reads
-            if read_count - last_report >= 100000:
-                print(f"  Processed {read_count:,} reads...")
-                last_report = read_count
-
-            # Skip unmapped, duplicate, secondary
-            if aln['is_unmapped'] or aln['is_duplicate'] or aln['is_secondary']:
-                continue
-
-            # Get reference name
-            if aln['refID'] < 0 or aln['refID'] >= len(self.references):
-                continue
-
-            ref_name = self.references[aln['refID']]
-
-            if ref_name not in coverage:
-                continue
-
-            # Add to coverage
-            window_idx = aln['pos'] // window_size
-            if 0 <= window_idx < len(coverage[ref_name]):
-                coverage[ref_name][window_idx] += 1
-
-        print(f"✓ Processed {read_count:,} total reads")
+        t_scan = time.time()
+        print(f"  [timing] Alignment scan: {t_scan - t_header:.3f}s ({read_count:,} reads)")
         return coverage, read_count
+
 
 # Global BAM reader instance
 bam_reader = None
 
 def analyze_bam_coverage(bam_bytes, window_size=10000, chromosome=None, chromosomes=None,
-                         use_manual_thresholds=False, amp_threshold=None, del_threshold=None, min_windows_override=None):
+                         use_manual_thresholds=False, amp_threshold=None, del_threshold=None,
+                         min_windows_override=None, bai_bytes=None, reference_seqs=None,
+                         segmentation_method=None):
     """
-    Analyze BAM file and calculate coverage with adaptive OR manual thresholds
-    Args:
-        bam_bytes: BAM file data
-        window_size: Window size in bp
-        chromosome: Single chromosome (legacy)
-        chromosomes: List of chromosomes for parallel processing
-        use_manual_thresholds: If True, use manual thresholds instead of adaptive
-        amp_threshold: Manual amplification threshold (normalized coverage ratio)
-        del_threshold: Manual deletion threshold (normalized coverage ratio)
-        min_windows_override: Manual minimum windows for CNV calling
+    Analyze BAM file and calculate coverage with CNV detection.
     """
     global bam_reader
+    t_total_start = time.time()
 
     try:
-        # Create BAM reader and calculate coverage
         bam_reader = SimpleBamReader(bam_bytes)
+
+        if bai_bytes:
+            bam_reader.set_index(bai_bytes)
+            print("BAI index loaded - using indexed access")
+
         coverage_data, total_reads = bam_reader.calculate_coverage(
             chrom=chromosome,
             chroms=chromosomes,
@@ -436,7 +575,6 @@ def analyze_bam_coverage(bam_bytes, window_size=10000, chromosome=None, chromoso
                     'normalized': 0.0
                 })
 
-        # Calculate median coverage to detect sample quality
         coverages = [w['coverage'] for w in windows if w['coverage'] > 0]
         if not coverages:
             return {'error': 'No coverage data found'}
@@ -444,30 +582,52 @@ def analyze_bam_coverage(bam_bytes, window_size=10000, chromosome=None, chromoso
         median_cov = float(np.median(coverages))
         mean_cov = float(np.mean(coverages))
 
-        print(f"Coverage stats: median={median_cov:.1f}x, mean={mean_cov:.1f}x")
-
-        # Classify coverage level
         if median_cov < 15:
             coverage_class = "low"
-            print("⚠️ LOW COVERAGE DETECTED (<15x)")
         elif median_cov < 30:
             coverage_class = "medium"
-            print("📊 MEDIUM COVERAGE (15-30x)")
         else:
             coverage_class = "high"
-            print("✅ HIGH COVERAGE (>30x)")
 
-        # Normalize coverage
         for w in windows:
             w['normalized'] = w['coverage'] / median_cov if median_cov > 0 else 0
 
+        # GC correction if reference provided (Part 4.1)
+        gc_corrected = False
+        if reference_seqs:
+            try:
+                windows = apply_gc_correction(windows, reference_seqs, window_size)
+                gc_corrected = True
+            except Exception as e:
+                print(f"GC correction failed: {e}")
+
+        # Mappability mask (Part 4.2)
+        if reference_seqs:
+            windows = apply_mappability_mask(windows, reference_seqs, window_size)
+
         # Choose detection mode
+        # Determine segmentation method
+        if segmentation_method is None:
+            segmentation_method = 'cbs_lite' if reference_seqs else 'threshold'
+
         if use_manual_thresholds:
-            print(f"Using MANUAL thresholds: amp={amp_threshold}, del={del_threshold}, min_windows={min_windows_override}")
             cnvs = detect_cnvs_manual(windows, amp_threshold, del_threshold, min_windows_override, median_cov)
+        elif segmentation_method == 'cbs_lite':
+            cnvs = detect_cnvs_cbs_lite(windows, coverage_class, median_cov)
         else:
-            print("Using ADAPTIVE thresholds based on coverage quality")
             cnvs = detect_cnvs_adaptive(windows, coverage_class, median_cov)
+
+        # Build warnings (Part 4.5)
+        warnings = []
+        if not reference_seqs:
+            warnings.append("No reference FASTA - GC correction skipped")
+        if not bai_bytes:
+            warnings.append("No BAI index - full file scan performed")
+        warnings.append("Tumor-only calling - no normal reference panel used")
+        warnings.append(f"Detection method: {segmentation_method}")
+
+        t_total = time.time() - t_total_start
+        print(f"  [timing] Total CNV analysis: {t_total:.3f}s")
 
         return {
             'total_reads': total_reads,
@@ -482,11 +642,14 @@ def analyze_bam_coverage(bam_bytes, window_size=10000, chromosome=None, chromoso
                 'class': coverage_class
             },
             'thresholds_used': {
-                'mode': 'manual' if use_manual_thresholds else 'adaptive',
+                'mode': 'manual' if use_manual_thresholds else segmentation_method,
                 'amp_threshold': amp_threshold if use_manual_thresholds else None,
                 'del_threshold': del_threshold if use_manual_thresholds else None,
                 'min_windows': min_windows_override if use_manual_thresholds else None
-            }
+            },
+            'gc_corrected': gc_corrected,
+            'warnings': warnings,
+            'timing_seconds': t_total
         }
 
     except Exception as e:
@@ -496,31 +659,109 @@ def analyze_bam_coverage(bam_bytes, window_size=10000, chromosome=None, chromoso
             'traceback': traceback.format_exc()
         }
 
+
+# ═══════════════════════════════════════════════════════════
+# GC CORRECTION — Part 4.1
+# ═══════════════════════════════════════════════════════════
+
+def apply_gc_correction(windows, reference_seqs, window_size):
+    """Apply GC content correction via polynomial regression."""
+    gc_fractions = []
+    valid_indices = []
+
+    for i, w in enumerate(windows):
+        chrom = w['chromosome']
+        if chrom not in reference_seqs:
+            continue
+        seq = reference_seqs[chrom]
+        start = w['start']
+        end = min(w['end'], len(seq))
+        if end <= start:
+            continue
+        window_seq = seq[start:end].upper()
+        gc_count = window_seq.count('G') + window_seq.count('C')
+        total = len(window_seq) - window_seq.count('N')
+        if total < window_size * 0.5:
+            continue
+        gc_frac = gc_count / total
+        gc_fractions.append(gc_frac)
+        valid_indices.append(i)
+
+    if len(gc_fractions) < 10:
+        return windows
+
+    gc_arr = np.array(gc_fractions)
+    cov_arr = np.array([windows[i]['normalized'] for i in valid_indices])
+
+    # Fit degree-2 polynomial: coverage ~ a*gc^2 + b*gc + c
+    mask = cov_arr > 0
+    if mask.sum() < 10:
+        return windows
+
+    coeffs = np.polyfit(gc_arr[mask], cov_arr[mask], 2)
+    predicted = np.polyval(coeffs, gc_arr)
+
+    # Normalize: divide observed by predicted
+    for j, idx in enumerate(valid_indices):
+        if predicted[j] > 0.1:
+            windows[idx]['normalized'] = windows[idx]['normalized'] / predicted[j]
+
+    print(f"  GC correction applied to {len(valid_indices)} windows")
+    return windows
+
+
+# ═══════════════════════════════════════════════════════════
+# MAPPABILITY MASK — Part 4.2
+# ═══════════════════════════════════════════════════════════
+
+def apply_mappability_mask(windows, reference_seqs, window_size, n_threshold=0.5):
+    """Exclude windows where reference is mostly Ns."""
+    masked_count = 0
+    for w in windows:
+        chrom = w['chromosome']
+        if chrom not in reference_seqs:
+            continue
+        seq = reference_seqs[chrom]
+        start = w['start']
+        end = min(w['end'], len(seq))
+        if end <= start:
+            continue
+        window_seq = seq[start:end].upper()
+        n_frac = window_seq.count('N') / len(window_seq)
+        if n_frac > n_threshold:
+            w['masked'] = True
+            w['normalized'] = 0.0
+            masked_count += 1
+
+    if masked_count > 0:
+        print(f"  Mappability mask: excluded {masked_count} windows (>{n_threshold*100:.0f}% N)")
+    return windows
+
+
+# ═══════════════════════════════════════════════════════════
+# CNV DETECTION — Parts 1 & 4
+# ═══════════════════════════════════════════════════════════
+
 def detect_cnvs_manual(windows, amp_threshold, del_threshold, min_windows, median_cov):
-    """
-    Manual CNV detection with user-specified thresholds
-    """
+    """Manual CNV detection with user-specified thresholds."""
     cnvs = []
     current_cnv = None
 
     for window in windows:
+        if window.get('masked'):
+            continue
         norm_cov = window['normalized']
-
         is_amp = norm_cov >= amp_threshold
         is_del = norm_cov <= del_threshold and norm_cov > 0
 
         if is_amp or is_del:
             cnv_type = 'amplification' if is_amp else 'deletion'
-
             if current_cnv and current_cnv['type'] == cnv_type and current_cnv['chromosome'] == window['chromosome']:
-                # Extend current CNV
                 current_cnv['end'] = window['end']
                 current_cnv['windows'].append(window)
             else:
-                # Start new CNV
                 if current_cnv and len(current_cnv['windows']) >= min_windows:
                     cnvs.append(summarize_cnv_manual(current_cnv, median_cov))
-
                 current_cnv = {
                     'chromosome': window['chromosome'],
                     'start': window['start'],
@@ -529,28 +770,23 @@ def detect_cnvs_manual(windows, amp_threshold, del_threshold, min_windows, media
                     'windows': [window]
                 }
         else:
-            # No CNV, close current if exists
             if current_cnv and len(current_cnv['windows']) >= min_windows:
                 cnvs.append(summarize_cnv_manual(current_cnv, median_cov))
-                current_cnv = None
+            current_cnv = None
 
-    # Close last CNV
     if current_cnv and len(current_cnv['windows']) >= min_windows:
         cnvs.append(summarize_cnv_manual(current_cnv, median_cov))
 
-    print(f"Detected {len(cnvs)} CNVs with manual thresholds")
     return cnvs
 
 def summarize_cnv_manual(cnv, median_cov):
-    """Summarize CNV region with manual thresholds (no adaptive confidence)"""
+    """Summarize CNV region with manual thresholds."""
     windows = cnv['windows']
     coverages = [w['coverage'] for w in windows]
     normalized = [w['normalized'] for w in windows]
-
     avg_norm = float(np.mean(normalized))
     std_norm = float(np.std(normalized))
 
-    # Simple confidence based on consistency
     if len(windows) >= 7 and std_norm < 0.3:
         confidence = 'high'
     elif len(windows) >= 3 and std_norm < 0.5:
@@ -571,53 +807,38 @@ def summarize_cnv_manual(cnv, median_cov):
     }
 
 def detect_cnvs_adaptive(windows, coverage_class, median_cov):
-    """
-    Adaptive CNV detection with thresholds based on coverage level
-    """
-
-    # Adjust thresholds based on coverage quality
+    """Adaptive CNV detection with thresholds based on coverage level."""
     if coverage_class == "low":
-        # More permissive thresholds for low coverage
-        amp_threshold = 2.0      # Less strict (was 1.5)
-        del_threshold = 0.3      # More strict (was 0.5)
-        min_windows = 5          # Require longer regions
-        print(f"Using LOW COVERAGE thresholds: amp={amp_threshold}, del={del_threshold}")
-
+        amp_threshold = 2.0
+        del_threshold = 0.3
+        min_windows = 5
     elif coverage_class == "medium":
-        # Standard thresholds
         amp_threshold = 1.5
         del_threshold = 0.5
         min_windows = 3
-        print(f"Using MEDIUM COVERAGE thresholds: amp={amp_threshold}, del={del_threshold}")
-
-    else:  # high coverage
-        # More sensitive detection
-        amp_threshold = 1.3      # More sensitive
-        del_threshold = 0.7      # More sensitive
-        min_windows = 2          # Can be shorter
-        print(f"Using HIGH COVERAGE thresholds: amp={amp_threshold}, del={del_threshold}")
+    else:
+        amp_threshold = 1.3
+        del_threshold = 0.7
+        min_windows = 2
 
     cnvs = []
     current_cnv = None
 
     for window in windows:
+        if window.get('masked'):
+            continue
         norm_cov = window['normalized']
-
         is_amp = norm_cov >= amp_threshold
         is_del = norm_cov <= del_threshold and norm_cov > 0
 
         if is_amp or is_del:
             cnv_type = 'amplification' if is_amp else 'deletion'
-
             if current_cnv and current_cnv['type'] == cnv_type and current_cnv['chromosome'] == window['chromosome']:
-                # Extend current CNV
                 current_cnv['end'] = window['end']
                 current_cnv['windows'].append(window)
             else:
-                # Start new CNV
                 if current_cnv and len(current_cnv['windows']) >= min_windows:
                     cnvs.append(summarize_cnv(current_cnv, median_cov, coverage_class))
-
                 current_cnv = {
                     'chromosome': window['chromosome'],
                     'start': window['start'],
@@ -626,54 +847,65 @@ def detect_cnvs_adaptive(windows, coverage_class, median_cov):
                     'windows': [window]
                 }
         else:
-            # No CNV, close current if exists
             if current_cnv and len(current_cnv['windows']) >= min_windows:
                 cnvs.append(summarize_cnv(current_cnv, median_cov, coverage_class))
-                current_cnv = None
+            current_cnv = None
 
-    # Close last CNV
     if current_cnv and len(current_cnv['windows']) >= min_windows:
         cnvs.append(summarize_cnv(current_cnv, median_cov, coverage_class))
 
-    print(f"Detected {len(cnvs)} CNVs with adaptive thresholds")
     return cnvs
 
-def summarize_cnv(cnv, median_cov, coverage_class):
-    """Summarize CNV region with confidence based on coverage"""
+def summarize_cnv(cnv, median_cov, coverage_class, t_stat=None):
+    """
+    Summarize CNV region with confidence scoring.
+
+    Confidence rubric (Part 4.4):
+    - High: |t-stat| > 5 AND num_windows >= 5
+    - Medium: |t-stat| > 3 AND num_windows >= 3
+    - Low: everything else
+
+    When t_stat is not available (threshold mode), falls back to
+    window count + stddev heuristic.
+    """
     windows = cnv['windows']
     coverages = [w['coverage'] for w in windows]
     normalized = [w['normalized'] for w in windows]
-
     avg_norm = float(np.mean(normalized))
     std_norm = float(np.std(normalized))
 
-    # Confidence scoring adapted to coverage level
-    if coverage_class == "low":
-        # More stringent confidence for low coverage
-        if len(windows) >= 10 and std_norm < 0.3:
+    if t_stat is not None:
+        # CBS-lite confidence scoring
+        abs_t = abs(t_stat)
+        if abs_t > 5 and len(windows) >= 5:
             confidence = 'high'
-        elif len(windows) >= 5 and std_norm < 0.5:
+        elif abs_t > 3 and len(windows) >= 3:
             confidence = 'medium'
         else:
             confidence = 'low'
-
-    elif coverage_class == "medium":
-        # Standard confidence
-        if len(windows) >= 7 and std_norm < 0.3:
-            confidence = 'high'
-        elif len(windows) >= 3 and std_norm < 0.5:
-            confidence = 'medium'
+    else:
+        # Fallback heuristic
+        if coverage_class == "low":
+            if len(windows) >= 10 and std_norm < 0.3:
+                confidence = 'high'
+            elif len(windows) >= 5 and std_norm < 0.5:
+                confidence = 'medium'
+            else:
+                confidence = 'low'
+        elif coverage_class == "medium":
+            if len(windows) >= 7 and std_norm < 0.3:
+                confidence = 'high'
+            elif len(windows) >= 3 and std_norm < 0.5:
+                confidence = 'medium'
+            else:
+                confidence = 'low'
         else:
-            confidence = 'low'
-
-    else:  # high coverage
-        # More lenient confidence (data is more reliable)
-        if len(windows) >= 5 and std_norm < 0.4:
-            confidence = 'high'
-        elif len(windows) >= 2 and std_norm < 0.6:
-            confidence = 'medium'
-        else:
-            confidence = 'low'
+            if len(windows) >= 5 and std_norm < 0.4:
+                confidence = 'high'
+            elif len(windows) >= 2 and std_norm < 0.6:
+                confidence = 'medium'
+            else:
+                confidence = 'low'
 
     return {
         'chromosome': cnv['chromosome'],
@@ -682,17 +914,123 @@ def summarize_cnv(cnv, median_cov, coverage_class):
         'length': cnv['end'] - cnv['start'],
         'type': cnv['type'],
         'avgCoverage': float(np.mean(coverages)),
-        'copyNumber': avg_norm * 2,  # Assume diploid
+        'copyNumber': avg_norm * 2,
         'confidence': confidence,
-        'num_windows': len(windows)
+        'num_windows': len(windows),
+        't_statistic': float(t_stat) if t_stat is not None else None
     }
 
-def call_variants_from_bam(bam_bytes, chromosomes=None, min_depth=10, min_base_quality=20, min_mapping_quality=20, min_variant_reads=3, min_allele_freq=0.05):
-    """
-    OPTIMIZED: Call variants one chromosome at a time to minimize memory usage
 
-    Trade-off: Slower (must re-read BAM for each chromosome) but uses 80% less memory
-    Critical for large files (20-50GB) that would otherwise exceed browser memory limits
+# ═══════════════════════════════════════════════════════════
+# CBS-LITE SEGMENTATION — Part 4.3
+# ═══════════════════════════════════════════════════════════
+
+def detect_cnvs_cbs_lite(windows, coverage_class, median_cov, min_segment_windows=3, t_threshold=3.0):
+    """
+    Recursive binary segmentation (CBS-lite) for CNV detection.
+
+    For each chromosome, find the position that maximizes the t-statistic
+    between left and right segments. If t > threshold, split and recurse.
+    """
+    # Group windows by chromosome
+    chrom_windows = defaultdict(list)
+    for w in windows:
+        if not w.get('masked') and w['normalized'] > 0:
+            chrom_windows[w['chromosome']].append(w)
+
+    cnvs = []
+    for chrom, chrom_wins in chrom_windows.items():
+        if len(chrom_wins) < min_segment_windows * 2:
+            continue
+
+        norm_values = np.array([w['normalized'] for w in chrom_wins])
+        segments = _segment_recursive(norm_values, 0, len(norm_values), t_threshold, min_segment_windows)
+
+        # Convert segments to CNVs
+        for seg_start, seg_end, seg_mean, seg_t in segments:
+            if seg_mean > 1.3:
+                cnv_type = 'amplification'
+            elif seg_mean < 0.7:
+                cnv_type = 'deletion'
+            else:
+                continue  # Normal segment
+
+            seg_windows = chrom_wins[seg_start:seg_end]
+            cnv = {
+                'chromosome': chrom,
+                'start': seg_windows[0]['start'],
+                'end': seg_windows[-1]['end'],
+                'type': cnv_type,
+                'windows': seg_windows
+            }
+            cnvs.append(summarize_cnv(cnv, median_cov, coverage_class, t_stat=seg_t))
+
+    return cnvs
+
+def _segment_recursive(values, start, end, t_threshold, min_size):
+    """Recursively segment an array by maximizing t-statistic at split points."""
+    length = end - start
+    if length < min_size * 2:
+        mean_val = float(np.mean(values[start:end]))
+        return [(start, end, mean_val, 0.0)]
+
+    # Find best split point
+    best_t = 0.0
+    best_pos = -1
+
+    segment = values[start:end]
+    n = len(segment)
+
+    # Compute cumulative sums for efficient mean/var calculation
+    cumsum = np.cumsum(segment)
+    cumsum2 = np.cumsum(segment ** 2)
+
+    for i in range(min_size, n - min_size):
+        n_left = i
+        n_right = n - i
+
+        sum_left = cumsum[i-1]
+        sum_right = cumsum[n-1] - cumsum[i-1]
+
+        mean_left = sum_left / n_left
+        mean_right = sum_right / n_right
+
+        sum2_left = cumsum2[i-1]
+        sum2_right = cumsum2[n-1] - cumsum2[i-1]
+
+        var_left = sum2_left / n_left - mean_left ** 2
+        var_right = sum2_right / n_right - mean_right ** 2
+
+        # Pooled standard error
+        var_left = max(var_left, 1e-10)
+        var_right = max(var_right, 1e-10)
+        se = math.sqrt(var_left / n_left + var_right / n_right)
+
+        if se > 0:
+            t_stat = abs(mean_left - mean_right) / se
+            if t_stat > best_t:
+                best_t = t_stat
+                best_pos = i
+
+    if best_t > t_threshold and best_pos > 0:
+        # Split and recurse
+        left_segments = _segment_recursive(values, start, start + best_pos, t_threshold, min_size)
+        right_segments = _segment_recursive(values, start + best_pos, end, t_threshold, min_size)
+        return left_segments + right_segments
+    else:
+        mean_val = float(np.mean(values[start:end]))
+        return [(start, end, mean_val, best_t)]
+
+
+# ═══════════════════════════════════════════════════════════
+# VARIANT CALLING — Parts 1 & 3
+# ═══════════════════════════════════════════════════════════
+
+def call_variants_from_bam(bam_bytes, chromosomes=None, min_depth=10, min_base_quality=20,
+                           min_mapping_quality=20, min_variant_reads=3, min_allele_freq=0.05,
+                           min_strand_bias=0.1, bai_bytes=None, reference_seqs=None):
+    """
+    Call variants from BAM data with correctness filters.
 
     Args:
         bam_bytes: BAM file data (BGZF compressed)
@@ -702,28 +1040,28 @@ def call_variants_from_bam(bam_bytes, chromosomes=None, min_depth=10, min_base_q
         min_mapping_quality: Minimum mapping quality
         min_variant_reads: Minimum number of reads supporting variant
         min_allele_freq: Minimum variant allele frequency (0-1)
-
-    Returns:
-        Dictionary with variants array and metadata
+        min_strand_bias: Min proportion of variant reads on minority strand (0.1 = 10%)
+        bai_bytes: Optional BAI index data
+        reference_seqs: Optional dict of {chrom: sequence_string} for ref base determination
     """
+    t_total_start = time.time()
     print(f"Starting variant calling with filters:")
-    print(f"  Min depth: {min_depth}")
-    print(f"  Min base quality: {min_base_quality}")
-    print(f"  Min mapping quality: {min_mapping_quality}")
-    print(f"  Min variant reads: {min_variant_reads}")
-    print(f"  Min allele frequency: {min_allele_freq}")
+    print(f"  Min depth: {min_depth}, Min BQ: {min_base_quality}, Min MQ: {min_mapping_quality}")
+    print(f"  Min variant reads: {min_variant_reads}, Min AF: {min_allele_freq}")
+    print(f"  Min strand bias: {min_strand_bias}")
 
-    # Create BAM reader
     bam_reader = SimpleBamReader(bam_bytes)
+    if bai_bytes:
+        bam_reader.set_index(bai_bytes)
+        print("BAI index loaded for variant calling")
+
     bam_reader.read_header()
 
     # Build chromosome filter
     chrom_filter = None
     if chromosomes:
         chrom_filter = set(chromosomes)
-        print(f"Processing chromosomes: {', '.join(chromosomes)}")
 
-    # Filter references
     target_refs = []
     for i, (ref_name, ref_len) in enumerate(zip(bam_reader.references, bam_reader.reference_lengths)):
         if chrom_filter and ref_name not in chrom_filter:
@@ -731,105 +1069,130 @@ def call_variants_from_bam(bam_bytes, chromosomes=None, min_depth=10, min_base_q
         target_refs.append((i, ref_name, ref_len))
 
     print(f"Processing {len(target_refs)} chromosomes/contigs")
-    print("")
-    print("OPTIMIZATION: Processing one chromosome at a time to minimize memory usage")
-    print(f"Expected memory usage: ~500-1000 MB (vs ~{len(target_refs) * 300} MB for all-at-once)")
-    print("")
 
-    # OPTIMIZATION: Process one chromosome at a time
     variants = []
     total_chroms = len(target_refs)
 
-    for chrom_idx, (ref_id, ref_name, ref_len) in enumerate(target_refs, 1):
-        print("")
-        print(f"[{chrom_idx}/{total_chroms}] Processing {ref_name} ({ref_len:,} bp)...")
+    # Part 1.2: Single-pass optimization when only one chromosome is targeted
+    if total_chroms == 1:
+        ref_id, ref_name, ref_len = target_refs[0]
+        print(f"  Single-chromosome mode: {ref_name} (optimized single pass)")
+        t_scan_start = time.time()
 
-        # Reset BAM reader to start of file for each chromosome
-        print(f"  Scanning BAM file for {ref_name} reads...")
-        bam_reader.compressed_pos = 0
-        bam_reader.uncompressed_buffer = b''
-        bam_reader.buffer_offset = 0
-
-        # Re-read header
-        bam_reader.read_header()
-
-        # OPTIMIZATION: Collect reads for THIS chromosome only
         chrom_reads = []
         reads_scanned = 0
-        reads_kept = 0
-        last_report = 0
 
-        while True:
-            aln = bam_reader.read_alignment()
-            if aln is None:
-                break
+        if bam_reader.bai_index:
+            # Indexed path
+            chunks = bam_reader.bai_index.get_chunks_for_chromosome(ref_id)
+            if chunks:
+                for aln in bam_reader.iterate_chunks(chunks):
+                    reads_scanned += 1
+                    if aln['refID'] != ref_id:
+                        continue
+                    if aln['is_unmapped'] or aln['is_duplicate'] or aln['is_secondary']:
+                        continue
+                    if aln['mapq'] < min_mapping_quality:
+                        continue
+                    chrom_reads.append(aln)
+        else:
+            # Full scan - single pass, no reset needed
+            while True:
+                aln = bam_reader.read_alignment()
+                if aln is None:
+                    break
+                reads_scanned += 1
+                if aln['refID'] != ref_id:
+                    continue
+                if aln['is_unmapped'] or aln['is_duplicate'] or aln['is_secondary']:
+                    continue
+                if aln['mapq'] < min_mapping_quality:
+                    continue
+                chrom_reads.append(aln)
 
-            reads_scanned += 1
+        t_scan = time.time() - t_scan_start
+        print(f"  [timing] Scan: {t_scan:.3f}s ({reads_scanned:,} reads, {len(chrom_reads):,} kept)")
 
-            # Progress reporting every 500k reads
-            if reads_scanned - last_report >= 500000:
-                print(f"    Scanned {reads_scanned:,} reads, kept {reads_kept:,} for {ref_name}...")
-                last_report = reads_scanned
+        if chrom_reads:
+            ref_seq = reference_seqs.get(ref_name) if reference_seqs else None
+            chrom_variants = call_variants_from_pileup(
+                chrom_reads, ref_name, ref_len,
+                min_depth, min_base_quality, min_variant_reads, min_allele_freq,
+                min_strand_bias, ref_seq
+            )
+            variants.extend(chrom_variants)
 
-            # Filter to this chromosome only
-            if aln['refID'] != ref_id:
-                continue
+    else:
+        # Multi-chromosome: re-scan per chromosome (no index)
+        for chrom_idx, (ref_id, ref_name, ref_len) in enumerate(target_refs, 1):
+            print(f"  [{chrom_idx}/{total_chroms}] {ref_name} ({ref_len:,} bp)")
+            t_chrom_start = time.time()
 
-            # Skip unmapped, duplicates, secondary
-            if aln['is_unmapped'] or aln['is_duplicate'] or aln['is_secondary']:
-                continue
+            chrom_reads = []
 
-            # Filter by mapping quality
-            if aln['mapq'] < min_mapping_quality:
-                continue
+            if bam_reader.bai_index:
+                chunks = bam_reader.bai_index.get_chunks_for_chromosome(ref_id)
+                if chunks:
+                    for aln in bam_reader.iterate_chunks(chunks):
+                        if aln['refID'] != ref_id:
+                            continue
+                        if aln['is_unmapped'] or aln['is_duplicate'] or aln['is_secondary']:
+                            continue
+                        if aln['mapq'] < min_mapping_quality:
+                            continue
+                        chrom_reads.append(aln)
+            else:
+                # Reset and re-scan for each chromosome
+                bam_reader.compressed_pos = 0
+                bam_reader.uncompressed_buffer = b''
+                bam_reader.buffer_offset = 0
+                bam_reader.references = []
+                bam_reader.reference_lengths = []
+                bam_reader.read_header()
 
-            # Keep this read
-            chrom_reads.append({
-                'pos': aln['pos'],
-                'seq': aln.get('seq', ''),
-                'qual': aln.get('qual', []),
-                'flag': aln['flag'],
-                'cigar': aln.get('cigar', [])
-            })
-            reads_kept += 1
+                while True:
+                    aln = bam_reader.read_alignment()
+                    if aln is None:
+                        break
+                    if aln['refID'] != ref_id:
+                        continue
+                    if aln['is_unmapped'] or aln['is_duplicate'] or aln['is_secondary']:
+                        continue
+                    if aln['mapq'] < min_mapping_quality:
+                        continue
+                    chrom_reads.append(aln)
 
-        print(f"  ✓ Scanned {reads_scanned:,} total reads")
-        print(f"  ✓ Using {len(chrom_reads):,} high-quality reads for {ref_name}")
+            t_chrom_scan = time.time() - t_chrom_start
+            print(f"    [timing] Scan: {t_chrom_scan:.3f}s, {len(chrom_reads):,} reads")
 
-        if not chrom_reads:
-            print(f"  ⚠ No reads found for {ref_name}, skipping")
-            continue
+            if chrom_reads:
+                ref_seq = reference_seqs.get(ref_name) if reference_seqs else None
+                chrom_variants = call_variants_from_pileup(
+                    chrom_reads, ref_name, ref_len,
+                    min_depth, min_base_quality, min_variant_reads, min_allele_freq,
+                    min_strand_bias, ref_seq
+                )
+                variants.extend(chrom_variants)
+                print(f"    {len(chrom_variants):,} variants")
 
-        # Call variants for this chromosome
-        chrom_variants = call_variants_from_pileup(
-            chrom_reads,
-            ref_name,
-            ref_len,
-            min_depth,
-            min_base_quality,
-            min_variant_reads,
-            min_allele_freq
-        )
+            import gc
+            chrom_reads = None
+            gc.collect()
 
-        variants.extend(chrom_variants)
-
-        print(f"  ✓ Completed {ref_name}: {len(chrom_variants):,} variants found")
-
-        # CRITICAL: Release memory before processing next chromosome
-        chrom_reads = None
-        del chrom_reads
-
-        # Force garbage collection (Python)
-        import gc
-        gc.collect()
-
-        print(f"  ✓ Memory released for {ref_name}")
-
-    print("")
-    print(f"✓ Variant calling complete: {len(variants)} variants found across {total_chroms} chromosomes")
-
-    # Sort variants by chromosome and position
+    # Sort variants
     variants.sort(key=lambda v: (v['chrom'], v['pos']))
+
+    t_total = time.time() - t_total_start
+    print(f"  [timing] Total variant calling: {t_total:.3f}s")
+    print(f"  Total variants: {len(variants)}")
+
+    # Build warnings (Part 3.5)
+    warnings = []
+    if not reference_seqs:
+        warnings.append("No reference FASTA provided - homozygous variants undetectable (reference base inferred from reads)")
+    if not bai_bytes:
+        warnings.append("No BAI index - full file scan performed")
+    warnings.append("No GIAB validation has been performed on this caller")
 
     return {
         'variants': variants,
@@ -839,166 +1202,287 @@ def call_variants_from_bam(bam_bytes, chromosomes=None, min_depth=10, min_base_q
             'min_base_quality': min_base_quality,
             'min_mapping_quality': min_mapping_quality,
             'min_variant_reads': min_variant_reads,
-            'min_allele_freq': min_allele_freq
+            'min_allele_freq': min_allele_freq,
+            'min_strand_bias': min_strand_bias
         },
-        'chromosomes_processed': [name for _, name, _ in target_refs]
+        'chromosomes_processed': [name for _, name, _ in target_refs],
+        'reference_used': 'fasta' if reference_seqs else 'inferred_from_reads',
+        'warnings': warnings,
+        'timing_seconds': t_total
     }
 
-def call_variants_from_pileup(reads, chrom_name, chrom_len, min_depth, min_base_quality, min_variant_reads, min_allele_freq):
-    """
-    OPTIMIZED: Two-pass sparse pileup - only build detailed pileup for candidate positions
 
-    Pass 1: Quick scan to find positions with sufficient depth
-    Pass 2: Build detailed base counts only for candidate positions
+def call_variants_from_pileup(reads, chrom_name, chrom_len, min_depth, min_base_quality,
+                              min_variant_reads, min_allele_freq, min_strand_bias=0.1, ref_seq=None):
     """
+    Optimized variant calling with NumPy pileup arrays and correctness filters.
+
+    Part 1.3: Uses numpy arrays for coverage and base counts
+    Part 1.4: Pre-bins reads by window to avoid O(windows*reads)
+    Part 3.2: Strand bias filtering
+    Part 3.3: Position-in-read filtering
+    Part 3.4: Binomial quality scores
+    """
+    t_pileup_start = time.time()
     variants = []
 
     # Filter reads with sequences
     quality_reads = [r for r in reads if r.get('seq') and len(r['seq']) > 0]
-
     if not quality_reads:
-        print(f"  ⚠ No reads with sequences for {chrom_name}")
         return variants
 
-    print(f"  Building sparse pileup from {len(quality_reads):,} reads...")
-
-    # Process genome in 1MB windows to manage memory
-    window_size = 1000000  # 1MB windows
+    # Part 1.4: Pre-bin reads by 1MB window
+    window_size = 1000000
     num_windows = (chrom_len // window_size) + 1
+    reads_by_window = defaultdict(list)
 
-    print(f"  Processing {chrom_name} in {num_windows} windows ({window_size:,}bp each)...")
+    for read in quality_reads:
+        read_start = read['pos']
+        read_end = read_start + len(read['seq'])
+        start_window = max(0, read_start // window_size)
+        end_window = min(num_windows - 1, read_end // window_size)
+        for w_idx in range(start_window, end_window + 1):
+            reads_by_window[w_idx].append(read)
 
-    for window_idx in range(num_windows):
+    t_bin = time.time()
+    print(f"    [timing] Read binning: {t_bin - t_pileup_start:.3f}s ({len(quality_reads):,} reads -> {len(reads_by_window)} windows)")
+
+    for window_idx in sorted(reads_by_window.keys()):
         window_start = window_idx * window_size
         window_end = min(window_start + window_size, chrom_len)
+        window_reads = reads_by_window[window_idx]
 
-        # Progress reporting every 10 windows
-        if window_idx % 10 == 0 and window_idx > 0:
-            print(f"    Processing window {window_idx}/{num_windows} ({window_start:,}-{window_end:,})...")
-
-        # OPTIMIZATION 1: Pass 1 - Quick coverage scan
-        # Only track coverage depth, not individual bases
-        position_coverage = {}
-
-        for read in quality_reads:
-            read_start = read['pos']
-            read_seq = read.get('seq', '')
-
-            if not read_seq:
-                continue
-
-            read_end = read_start + len(read_seq)
-
-            # Skip reads that don't overlap this window
-            if read_end < window_start or read_start > window_end:
-                continue
-
-            # Count coverage for each position
-            for i in range(len(read_seq)):
-                pos = read_start + i
-
-                # Only positions in current window
-                if pos < window_start or pos >= window_end:
-                    continue
-
-                position_coverage[pos] = position_coverage.get(pos, 0) + 1
-
-        # OPTIMIZATION 2: Filter to candidate positions
-        # Only positions with sufficient depth are candidates for variants
-        candidate_positions = {pos for pos, depth in position_coverage.items() if depth >= min_depth}
-
-        if not candidate_positions:
+        if not window_reads:
             continue
 
-        # OPTIMIZATION 3: Pass 2 - Detailed pileup ONLY for candidates
-        # This is the key optimization - we skip 99% of positions
-        pileup = {pos: {'A': 0, 'C': 0, 'G': 0, 'T': 0, 'N': 0} for pos in candidate_positions}
+        # Part 1.3: NumPy array for coverage (Pass 1)
+        ws = window_end - window_start
+        coverage_array = np.zeros(ws, dtype=np.int32)
 
-        for read in quality_reads:
+        for read in window_reads:
             read_start = read['pos']
-            read_seq = read.get('seq', '')
-            read_qual = read.get('qual', [])
-
-            if not read_seq:
-                continue
-
+            read_seq = read['seq']
             read_end = read_start + len(read_seq)
 
-            # Skip reads outside window
-            if read_end < window_start or read_start > window_end:
+            # Clip to window bounds
+            clip_start = max(read_start, window_start) - window_start
+            clip_end = min(read_end, window_end) - window_start
+            if clip_start < clip_end:
+                coverage_array[clip_start:clip_end] += 1
+
+        # Find candidate positions with sufficient depth
+        candidate_offsets = np.where(coverage_array >= min_depth)[0]
+        if len(candidate_offsets) == 0:
+            continue
+
+        # Part 1.3: NumPy 2D array for base counts [5 x window_size]
+        # Indices: A=0, C=1, G=2, T=3, N=4
+        base_map = {'A': 0, 'C': 1, 'G': 2, 'T': 3, 'N': 4}
+        candidate_set = set(candidate_offsets.tolist())
+
+        # For strand bias (Part 3.2): track forward/reverse counts per base per position
+        # Shape: [ws, 5, 2] where last dim is [forward, reverse]
+        base_strand_counts = {}  # offset -> {base_idx: [fwd, rev]}
+        # For position-in-read filter (Part 3.3)
+        base_positions = {}  # offset -> {base_idx: [read_positions]}
+
+        for read in window_reads:
+            read_start = read['pos']
+            read_seq = read['seq']
+            read_qual = read.get('qual')
+            is_reverse = read.get('is_reverse', False)
+            seq_len = len(read_seq)
+
+            if read_qual is None or len(read_qual) == 0:
                 continue
 
-            # Add bases to pileup
-            for i, (base, qual) in enumerate(zip(read_seq, read_qual)):
+            # Handle numpy qual arrays
+            if hasattr(read_qual, '__len__'):
+                pass  # numpy array or list, both indexable
+
+            for i in range(seq_len):
                 pos = read_start + i
-
-                # CRITICAL: Only process candidate positions
-                if pos not in pileup:
+                offset = pos - window_start
+                if offset < 0 or offset >= ws:
+                    continue
+                if offset not in candidate_set:
                     continue
 
-                # Filter by base quality
-                if qual < min_base_quality:
+                q = int(read_qual[i]) if i < len(read_qual) else 0
+                if q < min_base_quality:
                     continue
 
-                base_upper = base.upper()
-                if base_upper in pileup[pos]:
-                    pileup[pos][base_upper] += 1
+                base = read_seq[i].upper() if i < len(read_seq) else 'N'
+                base_idx = base_map.get(base, 4)
 
-        # OPTIMIZATION 4: Call variants from sparse pileup
-        for pos in sorted(pileup.keys()):
-            bases = pileup[pos]
-            total_depth = sum(bases.values())
+                if offset not in base_strand_counts:
+                    base_strand_counts[offset] = {}
+                    base_positions[offset] = {}
 
-            # Skip if below minimum depth
+                if base_idx not in base_strand_counts[offset]:
+                    base_strand_counts[offset][base_idx] = [0, 0]
+                    base_positions[offset][base_idx] = []
+
+                strand_idx = 1 if is_reverse else 0
+                base_strand_counts[offset][base_idx][strand_idx] += 1
+                base_positions[offset][base_idx].append(i)
+
+        t_pass2 = time.time()
+
+        # Call variants from pileup data
+        for offset in candidate_offsets:
+            offset_int = int(offset)
+            if offset_int not in base_strand_counts:
+                continue
+
+            counts = base_strand_counts[offset_int]
+            total_depth = sum(fwd + rev for fwd, rev in counts.values())
+
             if total_depth < min_depth:
                 continue
 
-            # Find reference base (most common)
-            ref_base = max(bases.keys(), key=lambda b: bases[b])
-            ref_count = bases[ref_base]
+            pos = window_start + offset_int
+
+            # Determine reference base (Part 3.1)
+            if ref_seq and pos < len(ref_seq):
+                ref_base_char = ref_seq[pos].upper()
+                ref_base_idx = base_map.get(ref_base_char, -1)
+            else:
+                # Infer from most common base
+                ref_base_idx = max(counts.keys(), key=lambda b: sum(counts[b]))
+                ref_base_char = 'ACGTN'[ref_base_idx]
+
+            ref_count = sum(counts.get(ref_base_idx, [0, 0]))
 
             # Check each alternate base
-            for alt_base in ['A', 'C', 'G', 'T']:
-                if alt_base == ref_base or alt_base == 'N':
+            for alt_idx in range(4):  # A, C, G, T
+                if alt_idx == ref_base_idx:
+                    continue
+                if alt_idx not in counts:
                     continue
 
-                alt_count = bases[alt_base]
+                fwd_count, rev_count = counts[alt_idx]
+                alt_count = fwd_count + rev_count
 
-                # Early exit checks (fast)
                 if alt_count < min_variant_reads:
                     continue
 
                 allele_freq = alt_count / total_depth
-
                 if allele_freq < min_allele_freq:
                     continue
 
-                # Calculate quality score
-                # Simple phred-scaled quality based on allele frequency and depth
-                error_prob = (1 - allele_freq) ** alt_count
-                qual = min(-10 * math.log10(max(error_prob, 1e-100)), 999)
+                # Part 3.2: Strand bias filter
+                minority_strand = min(fwd_count, rev_count)
+                strand_bias = minority_strand / alt_count if alt_count > 0 else 0
+                if strand_bias < min_strand_bias:
+                    continue
 
+                # Part 3.3: Position-in-read filter
+                # Filter out variants where >80% of supporting reads have the variant
+                # in the first or last 5bp of the read
+                if alt_idx in base_positions.get(offset_int, {}):
+                    positions_in_read = base_positions[offset_int][alt_idx]
+                    if len(positions_in_read) > 0:
+                        edge_count = sum(1 for p in positions_in_read if p < 5 or p >= (len(read_seq) - 5))
+                        edge_fraction = edge_count / len(positions_in_read)
+                        if edge_fraction > 0.8:
+                            continue
+
+                # Part 3.4: Quality score - binomial test
+                # Null hypothesis: observed alt reads came from sequencing error at rate 0.01
+                # P(X >= alt_count | n=total_depth, p=0.01)
+                # Use log-space binomial survival function approximation
+                error_rate = 0.01
+                qual = _binomial_qual_score(alt_count, total_depth, error_rate)
+
+                alt_base_char = 'ACGTN'[alt_idx]
                 variants.append({
                     'chrom': chrom_name,
                     'pos': pos + 1,  # VCF is 1-based
-                    'ref': ref_base,
-                    'alt': alt_base,
+                    'ref': ref_base_char,
+                    'alt': alt_base_char,
                     'qual': float(qual),
                     'type': 'SNV',
                     'depth': total_depth,
                     'ref_count': ref_count,
                     'alt_count': alt_count,
-                    'allele_freq': float(allele_freq)
+                    'allele_freq': float(allele_freq),
+                    'strand_bias': float(strand_bias)
                 })
 
-        # Release memory for this window
-        pileup = None
-        position_coverage = None
-
-    print(f"  ✓ Found {len(variants):,} variants in {chrom_name}")
+    t_end = time.time()
+    print(f"    [timing] Pileup + calling: {t_end - t_pileup_start:.3f}s, {len(variants):,} variants")
     return variants
 
-print("✓ Python bioinformatics environment ready")
+
+def _binomial_qual_score(k, n, p):
+    """
+    Compute Phred-scaled quality score using a binomial test.
+
+    Tests the null hypothesis that k or more successes in n trials
+    occurred by chance with error probability p.
+
+    Uses log-space computation of the binomial survival function:
+    P(X >= k) = sum_{i=k}^{n} C(n,i) * p^i * (1-p)^(n-i)
+
+    Returns -10 * log10(P) capped at 999.
+    """
+    # For computational efficiency, use normal approximation when n*p > 5
+    mean = n * p
+    if mean > 5:
+        # Normal approximation to binomial
+        std = math.sqrt(n * p * (1 - p))
+        if std == 0:
+            return 999.0
+        z = (k - 0.5 - mean) / std
+        # Approximate upper tail of normal: P(Z > z) ~ exp(-z^2/2) / (z * sqrt(2*pi))
+        if z > 0:
+            log10_p = -(z * z) / (2 * math.log(10)) - math.log10(z) - 0.5 * math.log10(2 * math.pi)
+            qual = -10 * log10_p
+        else:
+            qual = 0.0
+    else:
+        # Direct computation in log space for small expected counts
+        # P(X >= k) = 1 - sum_{i=0}^{k-1} C(n,i) * p^i * (1-p)^(n-i)
+        log_sum = float('-inf')
+        log_p = math.log(p) if p > 0 else float('-inf')
+        log_1mp = math.log(1 - p)
+
+        for i in range(k):
+            log_term = _log_comb(n, i) + i * log_p + (n - i) * log_1mp
+            log_sum = _log_add(log_sum, log_term)
+
+        # P(X >= k) = 1 - CDF(k-1)
+        cdf = math.exp(log_sum) if log_sum > -500 else 0.0
+        survival = 1.0 - cdf
+        if survival <= 0:
+            qual = 999.0
+        else:
+            qual = -10 * math.log10(survival)
+
+    return min(qual, 999.0)
+
+
+def _log_comb(n, k):
+    """Log of binomial coefficient using lgamma."""
+    if k < 0 or k > n:
+        return float('-inf')
+    return math.lgamma(n + 1) - math.lgamma(k + 1) - math.lgamma(n - k + 1)
+
+
+def _log_add(log_a, log_b):
+    """Log-space addition: log(exp(a) + exp(b))."""
+    if log_a == float('-inf'):
+        return log_b
+    if log_b == float('-inf'):
+        return log_a
+    if log_a > log_b:
+        return log_a + math.log1p(math.exp(log_b - log_a))
+    else:
+        return log_b + math.log1p(math.exp(log_a - log_b))
+
+
+print("Python bioinformatics environment ready")
       `);
 
       self.postMessage({
@@ -1014,7 +1498,7 @@ print("✓ Python bioinformatics environment ready")
         timestamp: Date.now()
       });
 
-      console.log('✓ Pyodide initialized with bioinformatics support');
+      console.log('Pyodide initialized with bioinformatics support');
       return pyodide;
 
     } catch (error) {
@@ -1022,7 +1506,6 @@ print("✓ Python bioinformatics environment ready")
       const errorStack = error?.stack || '';
 
       console.error('Pyodide initialization failed:', error);
-      console.error('Error details:', { message: errorMessage, stack: errorStack });
 
       self.postMessage({
         type: 'error',
@@ -1050,6 +1533,9 @@ async function analyzeBamFile(fileData, options = {}) {
     const windowSize = options.windowSize || 10000;
     const chromosome = options.chromosome || null;
     const chromosomes = options.chromosomes || null;
+    const baiData = options.baiData || null;
+    const referenceSeqs = options.referenceSeqs || null;
+    const segmentationMethod = options.segmentationMethod || null;
 
     // Manual threshold parameters
     const useManualThresholds = options.useManualThresholds || false;
@@ -1057,7 +1543,6 @@ async function analyzeBamFile(fileData, options = {}) {
     const delThreshold = options.delThreshold || 0.5;
     const minWindows = options.minWindows || 3;
 
-    // Send progress updates
     self.postMessage({
       type: 'analysis-progress',
       stage: 'loading',
@@ -1065,15 +1550,20 @@ async function analyzeBamFile(fileData, options = {}) {
       progress: 10
     });
 
-    // Convert ArrayBuffer to Uint8Array for Python
     const bamBytes = new Uint8Array(fileData);
-
-    // Store BAM data in Pyodide memory
     pyodide.globals.set('bam_data_js', bamBytes);
 
-    // Store chromosomes list if provided
+    if (baiData) {
+      const baiBytes = new Uint8Array(baiData);
+      pyodide.globals.set('bai_data_js', baiBytes);
+    }
+
     if (chromosomes) {
       pyodide.globals.set('chromosomes_js', chromosomes);
+    }
+
+    if (referenceSeqs) {
+      pyodide.globals.set('reference_seqs_js', JSON.stringify(referenceSeqs));
     }
 
     self.postMessage({
@@ -1083,21 +1573,21 @@ async function analyzeBamFile(fileData, options = {}) {
       progress: 30
     });
 
-    // Build Python call with chromosomes parameter
     const chromParam = chromosomes
       ? 'chromosomes=list(chromosomes_js.to_py())'
       : chromosome
         ? `chromosome='${chromosome}'`
         : 'chromosome=None';
 
-    // Run Python analysis
+    const baiParam = baiData ? 'bai_bytes=bytes(bai_data_js.to_py())' : 'bai_bytes=None';
+    const refParam = referenceSeqs ? 'reference_seqs=json.loads(str(reference_seqs_js))' : 'reference_seqs=None';
+    const segParam = segmentationMethod ? `segmentation_method='${segmentationMethod}'` : 'segmentation_method=None';
+
     const resultJson = await pyodide.runPythonAsync(`
 import json
 
-# Get BAM data from JavaScript
 bam_bytes = bytes(bam_data_js.to_py())
 
-# Run analysis
 result = analyze_bam_coverage(
     bam_bytes,
     window_size=${windowSize},
@@ -1105,23 +1595,25 @@ result = analyze_bam_coverage(
     use_manual_thresholds=${useManualThresholds ? 'True' : 'False'},
     amp_threshold=${ampThreshold},
     del_threshold=${delThreshold},
-    min_windows_override=${minWindows}
+    min_windows_override=${minWindows},
+    ${baiParam},
+    ${refParam},
+    ${segParam}
 )
 
-# Convert to JSON
 json.dumps(result)
     `);
 
     // Clean up
     pyodide.globals.delete('bam_data_js');
-    if (chromosomes) {
-      pyodide.globals.delete('chromosomes_js');
-    }
+    if (baiData) pyodide.globals.delete('bai_data_js');
+    if (chromosomes) pyodide.globals.delete('chromosomes_js');
+    if (referenceSeqs) pyodide.globals.delete('reference_seqs_js');
 
     const result = JSON.parse(resultJson);
 
     if (result.error) {
-      throw new Error(result.error + '\\n' + (result.traceback || ''));
+      throw new Error(result.error + '\n' + (result.traceback || ''));
     }
 
     self.postMessage({
@@ -1153,8 +1645,10 @@ async function callVariants(fileData, options = {}) {
     const minMappingQuality = options.minMappingQuality || 20;
     const minVariantReads = options.minVariantReads || 3;
     const minAlleleFreq = options.minAlleleFreq || 0.05;
+    const minStrandBias = options.minStrandBias || 0.1;
+    const baiData = options.baiData || null;
+    const referenceSeqs = options.referenceSeqs || null;
 
-    // Send progress updates
     self.postMessage({
       type: 'variant-calling-progress',
       stage: 'loading',
@@ -1162,15 +1656,20 @@ async function callVariants(fileData, options = {}) {
       progress: 10
     });
 
-    // Convert ArrayBuffer to Uint8Array for Python
     const bamBytes = new Uint8Array(fileData);
-
-    // Store BAM data in Pyodide memory
     pyodide.globals.set('bam_data_js', bamBytes);
 
-    // Store chromosomes list if provided
+    if (baiData) {
+      const baiBytes = new Uint8Array(baiData);
+      pyodide.globals.set('bai_data_js', baiBytes);
+    }
+
     if (chromosomes) {
       pyodide.globals.set('chromosomes_js', chromosomes);
+    }
+
+    if (referenceSeqs) {
+      pyodide.globals.set('reference_seqs_js', JSON.stringify(referenceSeqs));
     }
 
     self.postMessage({
@@ -1180,19 +1679,18 @@ async function callVariants(fileData, options = {}) {
       progress: 30
     });
 
-    // Build Python call with parameters
     const chromParam = chromosomes
       ? 'chromosomes=list(chromosomes_js.to_py())'
       : 'chromosomes=None';
 
-    // Run Python variant calling
+    const baiParam = baiData ? 'bai_bytes=bytes(bai_data_js.to_py())' : 'bai_bytes=None';
+    const refParam = referenceSeqs ? 'reference_seqs=json.loads(str(reference_seqs_js))' : 'reference_seqs=None';
+
     const resultJson = await pyodide.runPythonAsync(`
 import json
 
-# Get BAM data from JavaScript
 bam_bytes = bytes(bam_data_js.to_py())
 
-# Run variant calling
 result = call_variants_from_bam(
     bam_bytes,
     ${chromParam},
@@ -1200,18 +1698,20 @@ result = call_variants_from_bam(
     min_base_quality=${minBaseQuality},
     min_mapping_quality=${minMappingQuality},
     min_variant_reads=${minVariantReads},
-    min_allele_freq=${minAlleleFreq}
+    min_allele_freq=${minAlleleFreq},
+    min_strand_bias=${minStrandBias},
+    ${baiParam},
+    ${refParam}
 )
 
-# Convert to JSON
 json.dumps(result)
     `);
 
     // Clean up
     pyodide.globals.delete('bam_data_js');
-    if (chromosomes) {
-      pyodide.globals.delete('chromosomes_js');
-    }
+    if (baiData) pyodide.globals.delete('bai_data_js');
+    if (chromosomes) pyodide.globals.delete('chromosomes_js');
+    if (referenceSeqs) pyodide.globals.delete('reference_seqs_js');
 
     const result = JSON.parse(resultJson);
 
@@ -1243,12 +1743,9 @@ async function runPythonCode(code) {
 
   try {
     const result = await pyodide.runPythonAsync(code);
-
-    // Convert Python objects to JS
     if (result && typeof result.toJs === 'function') {
       return result.toJs();
     }
-
     return result;
   } catch (error) {
     throw new Error(`Python execution failed: ${error.message}`);
