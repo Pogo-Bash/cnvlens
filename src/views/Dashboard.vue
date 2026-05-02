@@ -36,6 +36,11 @@
         <h2 class="font-bold text-text group-hover:text-mauve transition-colors mb-1">visualization</h2>
         <p class="text-sm text-subtext0">generate publication-ready plots</p>
       </router-link>
+
+      <router-link to="/diagnostics" class="card-link group">
+        <h2 class="font-bold text-text group-hover:text-mauve transition-colors mb-1">diagnostics</h2>
+        <p class="text-sm text-subtext0">benchmarking and pipeline validation</p>
+      </router-link>
     </div>
   </div>
 </template>
