@@ -68,23 +68,30 @@ class AnalysisService {
       throw new Error('Python environment not ready. Please wait for initialization to complete.');
     }
 
-    console.log('🔧 Using single-threaded Pyodide for CNV analysis');
+    console.log('Using single-threaded Pyodide for CNV analysis');
     console.log('Reading BAM file into memory...');
     const arrayBuffer = await bamFile.arrayBuffer();
 
     console.log(`Analyzing BAM file (${(arrayBuffer.byteLength / 1024 / 1024).toFixed(2)} MB) with Python...`);
 
+    // Read BAI if provided
+    let baiData = null;
+    if (options.baiFile) {
+      baiData = await options.baiFile.arrayBuffer();
+    }
+
     // Call Python BAM analysis
     const result = await this.pyodide.analyzeBam(arrayBuffer, {
       windowSize: options.windowSize || 10000,
-      chromosome: options.chromosome || null
+      chromosome: options.chromosome || null,
+      baiData,
+      referenceSeqs: options.referenceSeqs || null,
+      segmentationMethod: options.segmentationMethod || null
     });
 
-    // Add method identifier to result
     result.method = 'pyodide-python-single';
     result.worker_count = 1;
 
-    // Python returns the complete result with coverageData, cnvs, etc.
     return result;
   }
 

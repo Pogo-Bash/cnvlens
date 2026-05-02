@@ -28,14 +28,16 @@ export function useVariantCaller() {
       minMappingQuality: options.minMappingQuality || 20,
       minVariantReads: options.minVariantReads || 3,
       minAlleleFreq: options.minAlleleFreq || 0.05,
-      chromosomes: options.chromosomes || null
+      minStrandBias: options.minStrandBias ?? 0.1,
+      chromosomes: options.chromosomes || null,
+      baiData: options.baiData || null,
+      referenceSeqs: options.referenceSeqs || null
     };
 
     console.log('Variant calling filters:', filters);
 
-    // Use the callVariants method from pyodide composable
     const result = await pyodide.callVariants(bamData, filters);
-    console.log(`✓ Variant calling complete: ${result.total_variants} variants found`);
+    console.log(`Variant calling complete: ${result.total_variants} variants found`);
 
     return result;
   };
