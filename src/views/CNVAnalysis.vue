@@ -63,6 +63,19 @@
         <p v-if="selectedFile" class="text-xs text-green mt-1">{{ selectedFile.name }} ({{ formatFileSize(selectedFile.size) }})</p>
       </div>
 
+      <!-- BAI Index Upload -->
+      <div class="mb-4">
+        <label class="input-label">BAI index file <span class="text-overlay0 font-normal">— optional, speeds up single-chromosome analysis</span></label>
+        <input
+          type="file"
+          class="input-field cursor-pointer"
+          accept=".bai"
+          @change="handleBaiSelect"
+          :disabled="analyzing"
+        />
+        <p v-if="selectedBai" class="text-xs text-green mt-1">{{ selectedBai.name }} ({{ formatFileSize(selectedBai.size) }})</p>
+      </div>
+
       <!-- Analysis Options -->
       <h3 class="text-sm font-bold text-overlay1 uppercase tracking-wider mb-3 mt-6">analysis options</h3>
 
@@ -158,6 +171,17 @@
 
     <!-- Results Section -->
     <div v-if="results" class="space-y-6">
+      <!-- Warnings Banner -->
+      <div v-if="results.warnings && results.warnings.length > 0" class="status-row border-yellow/30">
+        <span class="status-dot bg-yellow"></span>
+        <div class="flex-1">
+          <p class="text-sm text-text font-bold mb-1">analysis warnings</p>
+          <ul class="text-xs text-subtext0 list-disc list-inside space-y-0.5">
+            <li v-for="(warning, i) in results.warnings" :key="i">{{ warning }}</li>
+          </ul>
+        </div>
+      </div>
+
       <CNVVisualization
         :coverage-data="results.coverageData"
         :cnvs="results.cnvs"
@@ -250,6 +274,7 @@ const pyodidePool = usePyodidePool();
 
 // State
 const selectedFile = ref(null);
+const selectedBai = ref(null);
 const windowSize = ref(10000);
 const selectedChromosome = ref('');
 const analyzing = ref(false);
@@ -323,6 +348,13 @@ function handleFileSelect(event) {
   }
 }
 
+function handleBaiSelect(event) {
+  const file = event.target.files[0];
+  if (file) {
+    selectedBai.value = file;
+  }
+}
+
 async function runAnalysis() {
   if (!selectedFile.value) return;
 
@@ -349,6 +381,7 @@ async function runAnalysis() {
       ampThreshold: useManualThresholds.value ? ampThreshold.value : null,
       delThreshold: useManualThresholds.value ? delThreshold.value : null,
       minWindows: useManualThresholds.value ? minWindows.value : null,
+      baiFile: selectedBai.value || null,
       onProgress: (p) => {
         progress.value = p;
         if (p.message) addLog(p.message);
