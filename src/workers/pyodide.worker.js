@@ -700,6 +700,7 @@ def apply_gc_correction(windows, reference_seqs, window_size, method='polyfit'):
         valid_indices.append(i)
 
     if len(gc_fractions) < 10:
+        print(f"  GC correction skipped: only {len(gc_fractions)} valid windows (need ≥10)")
         return windows
 
     gc_arr = np.array(gc_fractions)
@@ -708,6 +709,7 @@ def apply_gc_correction(windows, reference_seqs, window_size, method='polyfit'):
     # Fit degree-2 polynomial in log-space for stability at GC extremes
     mask = cov_arr > 0
     if mask.sum() < 10:
+        print(f"  GC correction skipped: only {mask.sum()} windows with coverage > 0 (need ≥10)")
         return windows
 
     log_cov = np.log(cov_arr[mask])
