@@ -664,8 +664,20 @@ def analyze_bam_coverage(bam_bytes, window_size=10000, chromosome=None, chromoso
 # GC CORRECTION — Part 4.1
 # ═══════════════════════════════════════════════════════════
 
-def apply_gc_correction(windows, reference_seqs, window_size):
-    """Apply GC content correction via polynomial regression."""
+def apply_gc_correction(windows, reference_seqs, window_size, method='polyfit'):
+    """
+    Apply GC content correction via polynomial regression.
+
+    Fits in log-space for stability at GC extremes, then exponentiates
+    back to linear so downstream consumers (thresholds, CBS-lite, segment
+    means) all operate on linear ratios. This gains fitting stability but
+    keeps the heteroscedastic variance in the CBS input — acceptable
+    tradeoff for lite usage; log-space CBS would need thresholds reworked.
+
+    method: 'polyfit' (degree-2, default) or 'loess' (not yet implemented).
+    """
+    if method == 'loess':
+        raise NotImplementedError("LOESS GC correction not yet implemented; use 'polyfit'")
     gc_fractions = []
     valid_indices = []
 
