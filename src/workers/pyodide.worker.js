@@ -601,9 +601,9 @@ def analyze_bam_coverage(bam_bytes, window_size=10000, chromosome=None, chromoso
             except Exception as e:
                 print(f"GC correction failed: {e}")
 
-        # Mappability mask (Part 4.2)
+        # N-content mask — excludes assembly gaps (Part 4.2)
         if reference_seqs:
-            windows = apply_mappability_mask(windows, reference_seqs, window_size)
+            windows = apply_n_mask(windows, reference_seqs, window_size)
 
         # Choose detection mode
         # Determine segmentation method
@@ -693,13 +693,15 @@ def apply_gc_correction(windows, reference_seqs, window_size):
     gc_arr = np.array(gc_fractions)
     cov_arr = np.array([windows[i]['normalized'] for i in valid_indices])
 
-    # Fit degree-2 polynomial: coverage ~ a*gc^2 + b*gc + c
+    # Fit degree-2 polynomial in log-space for stability at GC extremes
     mask = cov_arr > 0
     if mask.sum() < 10:
         return windows
 
-    coeffs = np.polyfit(gc_arr[mask], cov_arr[mask], 2)
-    predicted = np.polyval(coeffs, gc_arr)
+    log_cov = np.log(cov_arr[mask])
+    coeffs = np.polyfit(gc_arr[mask], log_cov, 2)
+    log_predicted = np.polyval(coeffs, gc_arr)
+    predicted = np.exp(log_predicted)
 
     # Normalize: divide observed by predicted
     for j, idx in enumerate(valid_indices):
@@ -711,11 +713,13 @@ def apply_gc_correction(windows, reference_seqs, window_size):
 
 
 # ═══════════════════════════════════════════════════════════
-# MAPPABILITY MASK — Part 4.2
+# N-CONTENT MASK — Part 4.2
+# (Excludes assembly gaps/N-runs; does NOT replace a true
+# mappability track like ENCODE 36-mer uniqueness)
 # ═══════════════════════════════════════════════════════════
 
-def apply_mappability_mask(windows, reference_seqs, window_size, n_threshold=0.5):
-    """Exclude windows where reference is mostly Ns."""
+def apply_n_mask(windows, reference_seqs, window_size, n_threshold=0.5):
+    """Exclude windows where reference is mostly Ns (assembly gaps)."""
     masked_count = 0
     for w in windows:
         chrom = w['chromosome']
@@ -734,7 +738,7 @@ def apply_mappability_mask(windows, reference_seqs, window_size, n_threshold=0.5
             masked_count += 1
 
     if masked_count > 0:
-        print(f"  Mappability mask: excluded {masked_count} windows (>{n_threshold*100:.0f}% N)")
+        print(f"  N-mask: excluded {masked_count} windows (>{n_threshold*100:.0f}% N)")
     return windows
 
 
