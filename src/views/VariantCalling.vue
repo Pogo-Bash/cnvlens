@@ -55,6 +55,19 @@
         <p v-if="selectedFile" class="text-xs text-green mt-1">{{ selectedFile.name }} ({{ formatFileSize(selectedFile.size) }})</p>
       </div>
 
+      <!-- BAI Index Upload -->
+      <div class="mb-4">
+        <label class="input-label">BAI index file <span class="text-overlay0 font-normal">— optional, dramatically speeds up single-chromosome analysis</span></label>
+        <input
+          type="file"
+          class="input-field cursor-pointer"
+          accept=".bai"
+          @change="handleBaiSelect"
+          :disabled="analyzing || loadingSample"
+        />
+        <p v-if="selectedBai" class="text-xs text-green mt-1">{{ selectedBai.name }} ({{ formatFileSize(selectedBai.size) }})</p>
+      </div>
+
       <!-- Sample Data -->
       <div class="mb-4">
         <button
@@ -68,7 +81,7 @@
             loading sample...
           </span>
         </button>
-        <p class="text-xs text-overlay0 mt-1">NA12878 exome — EGFR region (chr7, GRCh37). 2.4MB, ~57x in captured exons. ~20-40s to analyze.</p>
+        <p class="text-xs text-overlay0 mt-1">NA12878 exome — EGFR region (chr7, GRCh37). 5.7MB, ~57x in captured exons. Includes BAI index.</p>
       </div>
 
       <!-- Filters -->
@@ -103,6 +116,12 @@
           <label class="input-label">min allele freq</label>
           <input type="number" class="input-field" v-model.number="minAlleleFreq" :disabled="analyzing" min="0" max="1" step="0.01" />
           <p class="input-helper">variant allele frequency</p>
+        </div>
+
+        <div>
+          <label class="input-label">min strand bias</label>
+          <input type="number" class="input-field" v-model.number="minStrandBias" :disabled="analyzing" min="0" max="0.5" step="0.05" />
+          <p class="input-helper">min % reads on each strand</p>
         </div>
 
         <div>
@@ -150,6 +169,17 @@
 
     <!-- Results Section -->
     <div v-if="results" class="space-y-6">
+      <!-- Warnings Banner -->
+      <div v-if="results.warnings && results.warnings.length > 0" class="status-row border-yellow/30">
+        <span class="status-dot bg-yellow"></span>
+        <div class="flex-1">
+          <p class="text-sm text-text font-bold mb-1">analysis warnings</p>
+          <ul class="text-xs text-subtext0 list-disc list-inside space-y-0.5">
+            <li v-for="(warning, i) in results.warnings" :key="i">{{ warning }}</li>
+          </ul>
+        </div>
+      </div>
+
       <!-- Summary Stats -->
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div class="card-static">
@@ -290,12 +320,14 @@ const variantCaller = useVariantCaller();
 
 // State
 const selectedFile = ref(null);
+const selectedBai = ref(null);
 const loadingSample = ref(false);
 const minDepth = ref(10);
 const minBaseQuality = ref(20);
 const minMappingQuality = ref(20);
 const minVariantReads = ref(3);
 const minAlleleFreq = ref(0.05);
+const minStrandBias = ref(0.1);
 const selectedChromosome = ref('');
 const analyzing = ref(false);
 const progress = ref({ message: '', progress: 0, stage: '' });
@@ -394,14 +426,28 @@ function handleFileSelect(event) {
   }
 }
 
+function handleBaiSelect(event) {
+  const file = event.target.files[0];
+  if (file) {
+    selectedBai.value = file;
+  }
+}
+
 async function loadSampleData() {
   loadingSample.value = true;
   error.value = null;
   try {
-    const response = await fetch(import.meta.env.BASE_URL + 'sample-data/NA12878_EGFR.bam');
-    if (!response.ok) throw new Error(`Failed to fetch sample BAM: ${response.status}`);
-    const blob = await response.blob();
-    selectedFile.value = new File([blob], 'NA12878_EGFR.bam', { type: 'application/octet-stream' });
+    const [bamResponse, baiResponse] = await Promise.all([
+      fetch(import.meta.env.BASE_URL + 'sample-data/NA12878_EGFR.bam'),
+      fetch(import.meta.env.BASE_URL + 'sample-data/NA12878_EGFR.bam.bai')
+    ]);
+    if (!bamResponse.ok) throw new Error(`Failed to fetch sample BAM: ${bamResponse.status}`);
+    const bamBlob = await bamResponse.blob();
+    selectedFile.value = new File([bamBlob], 'NA12878_EGFR.bam', { type: 'application/octet-stream' });
+    if (baiResponse.ok) {
+      const baiBlob = await baiResponse.blob();
+      selectedBai.value = new File([baiBlob], 'NA12878_EGFR.bam.bai', { type: 'application/octet-stream' });
+    }
   } catch (err) {
     error.value = err.message || 'Failed to load sample data';
   } finally {
@@ -433,6 +479,13 @@ async function runVariantCalling() {
     const arrayBuffer = await selectedFile.value.arrayBuffer();
     addLog(`loaded ${(arrayBuffer.byteLength / 1024 / 1024).toFixed(1)}MB into memory`);
 
+    // Read BAI if provided
+    let baiData = null;
+    if (selectedBai.value) {
+      baiData = await selectedBai.value.arrayBuffer();
+      addLog(`BAI index loaded (${(baiData.byteLength / 1024).toFixed(1)}KB)`);
+    }
+
     // Run variant calling
     addLog('starting python pileup analysis...');
     const variantResults = await variantCaller.callVariants(arrayBuffer, {
@@ -441,7 +494,9 @@ async function runVariantCalling() {
       minMappingQuality: minMappingQuality.value,
       minVariantReads: minVariantReads.value,
       minAlleleFreq: minAlleleFreq.value,
+      minStrandBias: minStrandBias.value,
       chromosomes: selectedChromosome.value ? [selectedChromosome.value] : null,
+      baiData,
       onProgress: (p) => {
         progress.value = p;
         if (p.message && p.message !== progress.value._lastLogged) {
