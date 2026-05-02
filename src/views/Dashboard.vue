@@ -3,7 +3,7 @@
     <!-- Hero -->
     <section class="max-w-2xl">
       <h1 class="text-3xl font-bold text-text mb-2">
-        lungseq <span class="text-mauve">analyzer</span>
+        CNVLens
       </h1>
       <p class="text-subtext0 leading-relaxed">
         browser-based lung cancer genomics analysis. variant calling and

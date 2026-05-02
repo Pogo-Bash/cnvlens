@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 const router = createRouter({
-  // Pull the base from Vite (set in vite.config.js: base: '/lungseq/').
+  // Pull the base from Vite (set in vite.config.js: base: '/cnvlens/').
   // Falls back to '/' when BASE_URL isn't defined.
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [

@@ -83,7 +83,7 @@ class OPFSManager {
    */
   async _initializeIndexedDB() {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open('LungSeqStorage', 1);
+      const request = indexedDB.open('CNVLensStorage', 2);
 
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {

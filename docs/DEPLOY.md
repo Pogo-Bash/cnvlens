@@ -1,4 +1,4 @@
-# LungSeq Analyzer - Render Deployment Guide
+# CNVLens - Render Deployment Guide
 
 ## Render Configuration
 
@@ -6,7 +6,7 @@
 **Web Service** (not Static Site - we need the dev server for CORS headers)
 
 ### Repository
-Connect your GitHub repository: `Pogo-Bash/lungseq-analyzer`
+Connect your GitHub repository: `Pogo-Bash/cnvlens`
 
 ### Branch
 Use your main branch or the feature branch: `claude/implement-cnv-biowasm-011CUJvWxm5uDLgGMnrVtE9C`
@@ -41,12 +41,12 @@ The app is configured to use `process.env.PORT || 3000`
 - Connect your GitHub account if not already connected
 
 ### 2. Select Repository
-- Choose `Pogo-Bash/lungseq-analyzer`
+- Choose `Pogo-Bash/cnvlens`
 - Select branch to deploy
 
 ### 3. Configure Service
 ```
-Name: lungseq-analyzer (or your preferred name)
+Name: cnvlens (or your preferred name)
 Region: Choose closest to your users
 Branch: main (or your feature branch)
 Root Directory: (leave blank)

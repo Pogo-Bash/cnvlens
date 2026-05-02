@@ -1,12 +1,12 @@
 services:
-  lungseq:
+  cnvlens:
     build: .
-    image: lungseq-analyzer:local
+    image: cnvlens:local
     ports:
       - "8080:80"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost/lungseq/"]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost/cnvlens/"]
       interval: 30s
       timeout: 5s
       retries: 3

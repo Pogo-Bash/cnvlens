@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Production server for lungseq-analyzer
+ * Production server for CNVLens
  * Serves static files with proper CORS headers for Pyodide/WASM
  */
 

@@ -20,9 +20,9 @@ FROM nginx:alpine AS runtime
 RUN rm /etc/nginx/conf.d/default.conf
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Mount the built app at /lungseq/ inside the web root.
-RUN mkdir -p /usr/share/nginx/html/lungseq
-COPY --from=build /app/dist/ /usr/share/nginx/html/lungseq/
+# Mount the built app at /cnvlens/ inside the web root.
+RUN mkdir -p /usr/share/nginx/html/cnvlens
+COPY --from=build /app/dist/ /usr/share/nginx/html/cnvlens/
 
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]

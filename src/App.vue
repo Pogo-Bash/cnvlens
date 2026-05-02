@@ -3,7 +3,7 @@
     <nav class="border-b border-surface0 px-6 py-4 sticky top-0 z-50 bg-crust/95 backdrop-blur-sm">
       <div class="max-w-6xl mx-auto flex items-center justify-between">
         <router-link to="/" class="text-mauve font-bold text-lg hover:text-lavender transition-colors">
-          lungseq analyzer
+          CNVLens
         </router-link>
         <div class="tab-nav border-b-0 mb-0 gap-4">
           <router-link to="/data-browser" class="tab-item">data browser</router-link>
