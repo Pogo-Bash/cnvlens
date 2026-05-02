@@ -54,7 +54,7 @@ export function useVariantCaller() {
     // VCF header
     vcfLines.push('##fileformat=VCFv4.2');
     vcfLines.push(`##fileDate=${new Date().toISOString().split('T')[0].replace(/-/g, '')}`);
-    vcfLines.push('##source=lungseq-analyzer-pyodide');
+    vcfLines.push('##source=cnvlens-pyodide');
     vcfLines.push('##INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">');
     vcfLines.push('##INFO=<ID=AF,Number=A,Type=Float,Description="Allele Frequency">');
     vcfLines.push('##INFO=<ID=AC,Number=A,Type=Integer,Description="Allele Count">');

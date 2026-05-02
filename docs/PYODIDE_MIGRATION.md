@@ -8,7 +8,7 @@
 
 ## Overview
 
-This migration adds Pyodide (Python in WebAssembly) support to lungseq-analyzer while maintaining the existing biowasm functionality. The implementation uses a **hybrid architecture** with Web Workers to ensure sub-second initial load times.
+This migration adds Pyodide (Python in WebAssembly) support to CNVLens while maintaining the existing biowasm functionality. The implementation uses a **hybrid architecture** with Web Workers to ensure sub-second initial load times.
 
 ### Key Achievements
 
@@ -220,7 +220,7 @@ When ready to test Pyodide-based CNV analysis:
 ## File Structure
 
 ```
-lungseq-analyzer/
+cnvlens/
 ├── public/
 │   └── pyodide/               # Self-hosted Pyodide (18.27 MB)
 │       ├── pyodide.js

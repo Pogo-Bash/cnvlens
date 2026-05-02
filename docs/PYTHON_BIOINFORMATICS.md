@@ -8,7 +8,7 @@
 
 ## Overview
 
-LungSeq Analyzer now uses a **full Python-based bioinformatics pipeline** running in WebAssembly via Pyodide. This replaces the previous biowasm implementation with a more powerful, flexible, and maintainable solution.
+CNVLens now uses a **full Python-based bioinformatics pipeline** running in WebAssembly via Pyodide. This replaces the previous biowasm implementation with a more powerful, flexible, and maintainable solution.
 
 ### Key Features
 

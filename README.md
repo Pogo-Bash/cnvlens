@@ -1,8 +1,8 @@
-# LungSeq Analyzer
+# CNVLens
 
-LungSeq Analyzer is a browser-based proof-of-concept for local-first cancer genomics analysis. Built as a class project at UIC. It implements pileup-based variant calling and read-depth CNV detection in pure Python, running entirely in the browser via Pyodide. No server, no uploads, no installation.
+CNVLens is a browser-based tool for copy number variation (CNV) calling from BAM files. It runs a complete CNV detection and variant calling pipeline entirely in the browser via WebAssembly (Pyodide), with no server, no uploads, and no installation. Built as a class project at UIC.
 
-**Live demo:** https://lungseq-analyzer.onrender.com
+**Live demo:** https://swapdoesbioandis-a.dev/cnvlens
 
 > **Not validated for clinical use.** This is an educational/research tool. No GIAB validation has been performed. See "Known limitations" below.
 
@@ -70,13 +70,13 @@ Files never leave the browser. The only network calls are loading the Pyodide ru
 - **Bioinformatics:** Pyodide 0.24 (Python 3.11 + NumPy in WebAssembly), custom BGZF/BAM parser
 - **Visualization:** Plotly.js, D3
 - **Storage:** OPFS with IndexedDB fallback
-- **Hosting:** Render (Node static server, see `server.js` and `docs/DEPLOY.md`)
+- **Hosting:** Docker (nginx) behind reverse proxy
 
 ## Local development
 
 ```bash
-git clone https://github.com/Pogo-Bash/lungseq-analyzer.git
-cd lungseq-analyzer
+git clone https://github.com/Pogo-Bash/cnvlens.git
+cd cnvlens
 npm install
 npm run dev
 ```
@@ -89,29 +89,29 @@ npm run start       # serve dist/ via server.js (used by Render)
 npm run preview     # vite preview (alternative)
 ```
 
-Note: the app is built with a base path of `/lungseq/`. When running locally with `npm run dev`, that means the app lives at http://localhost:3000/lungseq/, not at the root.
+Note: the app is built with a base path of `/cnvlens/`. When running locally with `npm run dev`, that means the app lives at http://localhost:3000/cnvlens/, not at the root.
 
 ## Run with Docker
 
-The repo ships a multi-stage Dockerfile that produces a small nginx image serving the built app at `/lungseq/` with the cross-origin isolation headers (`Cross-Origin-Opener-Policy`, `Cross-Origin-Embedder-Policy`) Pyodide needs.
+The repo ships a multi-stage Dockerfile that produces a small nginx image serving the built app at `/cnvlens/` with the cross-origin isolation headers (`Cross-Origin-Opener-Policy`, `Cross-Origin-Embedder-Policy`) Pyodide needs.
 
 ```bash
 # docker compose (easiest)
 docker compose up --build
 
 # or by hand
-docker build -t lungseq-analyzer .
-docker run --rm -p 8080:80 lungseq-analyzer
+docker build -t cnvlens .
+docker run --rm -p 8080:80 cnvlens
 ```
 
-Then open http://localhost:8080/lungseq/. The bare host (http://localhost:8080/) redirects there.
+Then open http://localhost:8080/cnvlens/. The bare host (http://localhost:8080/) redirects there.
 
 The headers are set inside the container, so the image works as a standalone deployment or sitting behind a reverse proxy that just forwards traffic — no need for the proxy to inject COOP/COEP itself.
 
 ## Project layout
 
 ```
-lungseq-analyzer/
+cnvlens/
 ├── docs/                       # deploy guide, architecture notes
 ├── public/pyodide/             # Pyodide runtime (copied at build time)
 ├── public/sample-data/         # bundled NA12878 EGFR slice (1000 Genomes)
