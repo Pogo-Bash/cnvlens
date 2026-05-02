@@ -4,14 +4,17 @@ LungSeq Analyzer is a browser-based proof-of-concept for local-first cancer geno
 
 **Live demo:** https://lungseq-analyzer.onrender.com
 
-> This is a scoped class project. It's not maintained, it's not a clinical tool, and it's not going to be either of those things. PRs are welcome but I'm not actively developing it.
+> **Not validated for clinical use.** This is an educational/research tool. No GIAB validation has been performed. See "Known limitations" below.
+
+> This is a scoped class project. PRs are welcome but I'm not actively developing it.
 
 ## What works
 
-- **SNV calling** — upload a BAM, get a sparse-pileup-based SNV caller with configurable depth/quality/AF filters and VCF/JSON/CSV export.
-- **Sample data** — click "try with sample data" on the Variant Calling page to run the pipeline without your own files. Sample data: NA12878 exome slice covering EGFR (chr7:55,000,000–55,300,000, GRCh37). 2.4MB, ~57x coverage in captured exons. Released under 1000 Genomes Project data use policy (unrestricted).
-- **CNV analysis** — read-depth based amp/del calls with adaptive or manual thresholds, confidence scoring, and Plotly + D3 visualizations.
+- **SNV calling** — upload a BAM, get a sparse-pileup-based SNV caller with configurable depth/quality/AF/strand-bias filters and VCF/JSON/CSV export. Supports optional BAI index for fast single-chromosome analysis.
+- **Sample data** — click "try with sample data" on the Variant Calling page to run the pipeline without your own files. Sample data: NA12878 exome slice covering EGFR (chr7:55,000,000–55,300,000, GRCh37). 5.7MB with BAI index, ~57x coverage in captured exons. Released under 1000 Genomes Project data use policy (unrestricted).
+- **CNV analysis** — read-depth based amp/del calls with adaptive thresholds, CBS-lite binary segmentation (when reference provided), GC correction, confidence scoring, and Plotly + D3 visualizations. Supports optional BAI index.
 - **Visualization** — Manhattan plot, allele-frequency histogram, quality-vs-depth scatter, CNV genome overview, per-chromosome summary, with PNG/SVG export.
+- **Diagnostics** — benchmarking page at /diagnostics for measuring pipeline performance with timing instrumentation.
 - **OPFS storage** — large BAM files persist between sessions via the Origin Private File System, with an IndexedDB fallback for browsers that don't support OPFS.
 
 ## What's scaffolded
@@ -21,6 +24,22 @@ LungSeq Analyzer is a browser-based proof-of-concept for local-first cancer geno
 - **Worker pool parallelism** — `src/composables/usePyodidePool.js` builds a multi-threaded Pyodide worker pool that splits chromosomes across cores, but the parallel path is gated behind a feature flag set to `false` in `src/services/analysis-service.js`. See the docstring at the top of `usePyodidePool.js` for why it's off.
 - **Data Browser** — see TCGA/ICGC above. It's a non-functional placeholder.
 
+## Known limitations
+
+- **No indel calling** — the variant caller emits SNVs only. CIGAR-aware pileup logic not implemented.
+- **Simple CNV segmentation** — CBS-lite is a basic recursive binary segmentation, not a full CBS implementation.
+- **No normal reference panel** — tumor-only calling means germline variants cannot be distinguished from somatic.
+- **No GIAB validation** — variant calls have not been benchmarked against truth sets.
+- **Reference base inference** — without a FASTA, homozygous variants are undetectable (most common base is assumed to be reference).
+
+## Performance
+
+With BAI index and single-chromosome analysis:
+- **EGFR sample (5.7MB, chr7):** typically under 5s for variant calling
+- **Without BAI:** full file scan, 10-20s depending on browser
+
+The /diagnostics page provides exact timing breakdowns.
+
 ## Architecture
 
 All bioinformatics work happens in Python via Pyodide. There is no compiled bcftools/samtools in this repo — the pipeline is a custom pure-Python BAM parser plus NumPy:
@@ -28,15 +47,18 @@ All bioinformatics work happens in Python via Pyodide. There is no compiled bcft
 ```
 Vue 3 UI (main thread)
     │
-    │ postMessage(BAM ArrayBuffer)
+    │ postMessage(BAM ArrayBuffer + optional BAI)
     ▼
 Pyodide Web Worker (Python 3.11 + NumPy in WASM)
-    ├── SimpleBamReader        — streaming BGZF + BAM binary parser
-    ├── Coverage / pileup      — sparse two-pass pileup, NumPy bincount
-    ├── CNV detector           — read-depth thresholds (adaptive or manual)
-    └── SNV caller             — Phred-scaled qual from allele frequency
+    ├── BaiIndexReader         — BAI binary format parser with virtual offset seek
+    ├── SimpleBamReader        — streaming BGZF + BAM binary parser (NumPy vectorized)
+    ├── Coverage / pileup      — numpy arrays, pre-binned reads, single-pass optimization
+    ├── CNV detector           — CBS-lite segmentation or threshold-based (adaptive/manual)
+    │                            with GC correction and mappability masking
+    └── SNV caller             — binomial quality score, strand bias filter,
+                                 position-in-read filter, optional FASTA reference
     │
-    ▼ JSON results
+    ▼ JSON results + warnings
 Plotly / D3 visualizations + OPFS persistence
 ```
 
@@ -96,7 +118,7 @@ lungseq-analyzer/
 ├── scripts/copy-pyodide.js     # build helper
 ├── server.js                   # production static server with COOP/COEP
 ├── src/
-│   ├── views/                  # Dashboard, DataBrowser, VariantCalling, CNVAnalysis, Visualization
+│   ├── views/                  # Dashboard, DataBrowser, VariantCalling, CNVAnalysis, Visualization, Diagnostics
 │   ├── components/             # CNVVisualization, BrowserCompatWarning, TerminalLog
 │   ├── composables/            # usePyodide, useVariantCaller, usePyodidePool
 │   ├── services/               # analysis-service
