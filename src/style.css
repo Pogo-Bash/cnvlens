@@ -2,6 +2,36 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Self-hosted JetBrains Mono — eliminates Google Fonts render-blocking request */
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/cnvlens/fonts/JetBrainsMono-Light.woff2') format('woff2');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/cnvlens/fonts/JetBrainsMono-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/cnvlens/fonts/JetBrainsMono-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/cnvlens/fonts/JetBrainsMono-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 @layer base {
   html {
     @apply bg-crust text-text antialiased;
@@ -78,7 +108,7 @@
     @apply flex gap-6 border-b border-surface0 mb-6;
   }
   .tab-item {
-    @apply pb-2 text-sm text-overlay1 transition-colors border-b-2 border-transparent -mb-px;
+    @apply pb-2 text-sm text-subtext0 transition-colors border-b-2 border-transparent -mb-px;
     @apply hover:text-text;
   }
   .tab-item.active,
@@ -89,15 +119,15 @@
   /* Form inputs */
   .input-field {
     @apply w-full bg-base border border-surface0 rounded-lg px-3 py-2 text-sm text-text;
-    @apply placeholder:text-overlay0;
+    @apply placeholder:text-subtext0;
     @apply focus:border-mauve focus:outline-none focus:ring-1 focus:ring-mauve/30;
     @apply transition-colors;
   }
   .input-label {
-    @apply block text-sm font-bold text-overlay1 mb-1;
+    @apply block text-sm font-bold text-subtext1 mb-1;
   }
   .input-helper {
-    @apply text-xs text-overlay0 mt-1;
+    @apply text-xs text-subtext0 mt-1;
   }
 
   /* Buttons */
@@ -126,7 +156,7 @@
     @apply w-full text-sm;
   }
   .data-table thead th {
-    @apply text-left text-xs font-bold text-overlay1 uppercase tracking-wider;
+    @apply text-left text-xs font-bold text-subtext1 uppercase tracking-wider;
     @apply py-2 px-3 border-b border-surface0 sticky top-0 bg-base;
   }
   .data-table tbody td {

@@ -2,17 +2,17 @@
   <div class="space-y-6">
     <!-- Plotly Coverage Plot -->
     <div class="card-static">
-      <h3 class="text-sm font-bold text-overlay1 uppercase tracking-wider mb-3">coverage plot</h3>
+      <h3 class="text-sm font-bold text-subtext1 uppercase tracking-wider mb-3">coverage plot</h3>
       <div ref="plotlyContainer" class="w-full" style="min-height: 400px;"></div>
     </div>
 
     <!-- D3 CNV Overview -->
     <div class="card-static">
-      <h3 class="text-sm font-bold text-overlay1 uppercase tracking-wider mb-3">cnv overview</h3>
+      <h3 class="text-sm font-bold text-subtext1 uppercase tracking-wider mb-3">cnv overview</h3>
 
       <div v-if="!props.cnvs || props.cnvs.length === 0" class="flex items-center justify-center h-96 gap-3">
         <span class="spinner"></span>
-        <span class="text-sm text-overlay1">preparing visualization...</span>
+        <span class="text-sm text-subtext0">preparing visualization...</span>
       </div>
 
       <div v-else ref="d3Container" class="w-full" style="min-height: 400px;"></div>
@@ -22,13 +22,13 @@
     <div class="card-static" v-if="cnvs && cnvs.length > 0">
       <!-- Header with counts -->
       <div class="flex justify-between items-center mb-4">
-        <h3 class="text-sm font-bold text-overlay1 uppercase tracking-wider">
+        <h3 class="text-sm font-bold text-subtext1 uppercase tracking-wider">
           detected CNVs ({{ cnvs.length }})
           <span v-if="hasActiveFilters" class="text-xs px-2 py-0.5 rounded bg-surface0 text-mauve ml-2">
             {{ filteredCnvs.length }} filtered
           </span>
         </h3>
-        <span class="text-xs text-overlay0">{{ pageInfo }}</span>
+        <span class="text-xs text-subtext0">{{ pageInfo }}</span>
       </div>
 
       <!-- Filter Controls -->
@@ -73,7 +73,7 @@
         </div>
 
         <div v-if="hasActiveFilters" class="mt-3 flex gap-2 items-center">
-          <span class="text-xs text-overlay0">active:</span>
+          <span class="text-xs text-subtext0">active:</span>
           <span v-if="filterType !== 'all'" class="text-xs px-2 py-0.5 rounded bg-surface0 text-subtext0">{{ filterType }}</span>
           <span v-if="filterChromosome !== 'all'" class="text-xs px-2 py-0.5 rounded bg-surface0 text-subtext0">{{ filterChromosome }}</span>
           <span v-if="filterConfidence !== 'all'" class="text-xs px-2 py-0.5 rounded bg-surface0 text-subtext0">{{ filterConfidence }}</span>
@@ -120,15 +120,16 @@
         <div class="flex gap-1">
           <button class="btn-ghost px-2 py-1 text-xs" @click="goToPage(1)" :disabled="currentPage === 1">first</button>
           <button class="btn-ghost px-2 py-1 text-xs" @click="previousPage" :disabled="currentPage === 1">prev</button>
-          <span class="text-xs text-overlay1 px-2 py-1">{{ currentPage }}/{{ totalPages }}</span>
+          <span class="text-xs text-subtext0 px-2 py-1">{{ currentPage }}/{{ totalPages }}</span>
           <button class="btn-ghost px-2 py-1 text-xs" @click="nextPage" :disabled="currentPage === totalPages">next</button>
           <button class="btn-ghost px-2 py-1 text-xs" @click="goToPage(totalPages)" :disabled="currentPage === totalPages">last</button>
         </div>
 
         <div class="flex items-center gap-2">
           <button class="btn-ghost px-2 py-1 text-xs" @click="goToPage(Math.max(1, currentPage - 10))" :disabled="currentPage <= 10">-10</button>
-          <span class="text-xs text-overlay0">go to:</span>
+          <label for="cnv-page-goto" class="text-xs text-subtext0">go to:</label>
           <input
+            id="cnv-page-goto"
             type="number"
             min="1"
             :max="totalPages"
@@ -483,8 +484,8 @@ function getConfidenceClass(confidence) {
   const classes = {
     high: 'text-green',
     medium: 'text-peach',
-    low: 'text-overlay0'
+    low: 'text-subtext0'
   };
-  return classes[confidence] || 'text-overlay1';
+  return classes[confidence] || 'text-subtext0';
 }
 </script>

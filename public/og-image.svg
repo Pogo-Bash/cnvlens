@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#1e1e2e"/>
+
+  <!-- Decorative step-function pattern, bottom-right corner, low opacity -->
+  <g stroke="#cba6f7" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.08">
+    <path d="M900 580 L960 580 L960 540 L1020 540 L1020 580 L1080 580 L1080 520 L1140 520 L1140 560 L1180 560"/>
+    <path d="M920 600 L980 600 L980 560 L1040 560 L1040 600 L1100 600 L1100 540 L1160 540"/>
+  </g>
+
+  <!-- Step-function logo -->
+  <g transform="translate(600,200)" stroke="#cba6f7" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M-100 50 L0 50 L0 -50 L100 -50"/>
+  </g>
+
+  <!-- CNVLens text -->
+  <text x="600" y="360" text-anchor="middle" font-family="'JetBrains Mono', monospace" font-weight="700" font-size="72" fill="#cdd6f4">CNVLens</text>
+
+  <!-- Tagline -->
+  <text x="600" y="420" text-anchor="middle" font-family="'JetBrains Mono', monospace" font-weight="400" font-size="28" fill="#a6adc8">Browser-based CNV caller</text>
+</svg>

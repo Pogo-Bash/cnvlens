@@ -40,11 +40,11 @@
 
     <!-- Upload Section -->
     <div class="card-static">
-      <h2 class="text-sm font-bold text-overlay1 uppercase tracking-wider mb-4">upload sequencing data</h2>
+      <h2 class="text-sm font-bold text-subtext1 uppercase tracking-wider mb-4">upload sequencing data</h2>
 
       <!-- BAM File Upload -->
       <div class="mb-4">
-        <label class="input-label">tumor BAM file <span class="text-overlay0 font-normal">— required</span></label>
+        <label class="input-label">tumor BAM file <span class="text-subtext0 font-normal">— required</span></label>
         <input
           type="file"
           class="input-field cursor-pointer"
@@ -57,7 +57,7 @@
 
       <!-- BAI Index Upload -->
       <div class="mb-4">
-        <label class="input-label">BAI index file <span class="text-overlay0 font-normal">— optional, dramatically speeds up single-chromosome analysis</span></label>
+        <label class="input-label">BAI index file <span class="text-subtext0 font-normal">— optional, dramatically speeds up single-chromosome analysis</span></label>
         <input
           type="file"
           class="input-field cursor-pointer"
@@ -81,11 +81,11 @@
             loading sample...
           </span>
         </button>
-        <p class="text-xs text-overlay0 mt-1">NA12878 exome — EGFR region (chr7, GRCh37). 5.7MB, ~57x in captured exons. Includes BAI index.</p>
+        <p class="text-xs text-subtext0 mt-1">NA12878 exome — EGFR region (chr7, GRCh37). 5.7MB, ~57x in captured exons. Includes BAI index.</p>
       </div>
 
       <!-- Filters -->
-      <h3 class="text-sm font-bold text-overlay1 uppercase tracking-wider mb-3 mt-6">variant calling filters</h3>
+      <h3 class="text-sm font-bold text-subtext1 uppercase tracking-wider mb-3 mt-6">variant calling filters</h3>
 
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
@@ -148,7 +148,7 @@
           </span>
         </button>
 
-        <p v-if="!variantCaller.isReady.value && !variantCaller.error.value" class="text-xs text-overlay1 mt-2">
+        <p v-if="!variantCaller.isReady.value && !variantCaller.error.value" class="text-xs text-subtext0 mt-2">
           python environment loading in background...
         </p>
       </div>
@@ -183,20 +183,20 @@
       <!-- Summary Stats -->
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div class="card-static">
-          <p class="text-xs text-overlay1 uppercase tracking-wider">total variants</p>
+          <p class="text-xs text-subtext1 uppercase tracking-wider">total variants</p>
           <p class="text-2xl font-bold text-text mt-1">{{ results.total_variants }}</p>
         </div>
         <div class="card-static">
-          <p class="text-xs text-overlay1 uppercase tracking-wider">SNVs</p>
+          <p class="text-xs text-subtext1 uppercase tracking-wider">SNVs</p>
           <p class="text-2xl font-bold text-mauve mt-1">{{ snvCount }}</p>
         </div>
         <div class="card-static opacity-50">
-          <p class="text-xs text-overlay1 uppercase tracking-wider">indels</p>
-          <p class="text-2xl font-bold text-overlay0 mt-1">n/a</p>
-          <p class="text-xs text-overlay0">not implemented</p>
+          <p class="text-xs text-subtext1 uppercase tracking-wider">indels</p>
+          <p class="text-2xl font-bold text-subtext0 mt-1">n/a</p>
+          <p class="text-xs text-subtext0">not implemented</p>
         </div>
         <div class="card-static">
-          <p class="text-xs text-overlay1 uppercase tracking-wider">chromosomes</p>
+          <p class="text-xs text-subtext1 uppercase tracking-wider">chromosomes</p>
           <p class="text-2xl font-bold text-text mt-1">{{ results.chromosomes_processed?.length || 0 }}</p>
         </div>
       </div>
@@ -204,20 +204,23 @@
       <!-- Variant Table -->
       <div class="card-static">
         <div class="flex items-center justify-between mb-4">
-          <h2 class="text-sm font-bold text-overlay1 uppercase tracking-wider">detected variants</h2>
-          <p class="text-xs text-overlay0">only SNVs — indel calling not yet implemented</p>
+          <h2 class="text-sm font-bold text-subtext1 uppercase tracking-wider">detected variants</h2>
+          <p class="text-xs text-subtext0">only SNVs — indel calling not yet implemented</p>
         </div>
 
         <!-- Filters -->
         <div class="flex flex-wrap gap-3 mb-4">
           <div>
-            <select class="input-field !w-auto" v-model="filterChromosome">
+            <label for="filter-chr" class="sr-only">chromosome filter</label>
+            <select id="filter-chr" class="input-field !w-auto" v-model="filterChromosome">
               <option value="all">all chromosomes</option>
               <option v-for="chr in uniqueChromosomes" :key="chr" :value="chr">{{ chr }}</option>
             </select>
           </div>
           <div>
+            <label for="filter-af" class="sr-only">minimum allele frequency filter</label>
             <input
+              id="filter-af"
               type="number"
               class="input-field !w-32"
               placeholder="min AF"
@@ -231,13 +234,13 @@
 
         <!-- Pagination -->
         <div v-if="filteredVariants.length > 0" class="flex items-center gap-4 mb-4">
-          <span class="text-xs text-overlay1">
+          <span class="text-xs text-subtext0">
             {{ ((currentPage - 1) * itemsPerPage) + 1 }}–{{ Math.min(currentPage * itemsPerPage, filteredVariants.length) }} of {{ filteredVariants.length }}
           </span>
           <div class="flex gap-1">
             <button class="btn-ghost px-2 py-1 text-xs" @click="goToPage(1)" :disabled="currentPage === 1">first</button>
             <button class="btn-ghost px-2 py-1 text-xs" @click="previousPage" :disabled="currentPage === 1">prev</button>
-            <span class="text-xs text-overlay1 px-2 py-1">{{ currentPage }}/{{ totalPages }}</span>
+            <span class="text-xs text-subtext0 px-2 py-1">{{ currentPage }}/{{ totalPages }}</span>
             <button class="btn-ghost px-2 py-1 text-xs" @click="nextPage" :disabled="currentPage === totalPages">next</button>
             <button class="btn-ghost px-2 py-1 text-xs" @click="goToPage(totalPages)" :disabled="currentPage === totalPages">last</button>
           </div>
@@ -284,7 +287,7 @@
 
       <!-- Export Options -->
       <div class="card-static">
-        <h2 class="text-sm font-bold text-overlay1 uppercase tracking-wider mb-3">export results</h2>
+        <h2 class="text-sm font-bold text-subtext1 uppercase tracking-wider mb-3">export results</h2>
         <div class="flex flex-wrap gap-2">
           <button class="btn-ghost text-xs" @click="exportAsVCF">download VCF</button>
           <button class="btn-ghost text-xs" @click="exportAsJSON">download JSON</button>
@@ -300,7 +303,7 @@
     </div>
 
     <!-- Attribution -->
-    <p class="text-xs text-overlay0 mt-4">
+    <p class="text-xs text-subtext0 mt-4">
       sample data: NA12878 exome slice from the
       <a href="https://www.internationalgenome.org/" target="_blank" rel="noopener" class="underline hover:text-subtext0">1000 Genomes Project</a>,
       released under the 1000 Genomes data use policy (unrestricted).
@@ -310,10 +313,21 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
+import { useHead } from '@unhead/vue';
 import BrowserCompatWarning from '../components/BrowserCompatWarning.vue';
 import TerminalLog from '../components/TerminalLog.vue';
 import { useVariantCaller } from '../composables/useVariantCaller.js';
 import { opfsManager } from '../utils/opfs-manager.js';
+
+useHead({
+  title: 'Variant Calling — CNVLens',
+  meta: [
+    { name: 'description', content: 'Call SNVs from BAM files with configurable filters. Browser-based pileup analysis powered by Pyodide.' },
+  ],
+  link: [
+    { rel: 'canonical', href: 'https://swapdoesbioandis-a.dev/cnvlens/variant-calling' },
+  ],
+})
 
 // Initialize variant caller
 const variantCaller = useVariantCaller();
@@ -631,7 +645,7 @@ function variantTypeClass(type) {
   if (type === 'SNV') return 'text-mauve';
   if (type === 'INS') return 'text-green';
   if (type === 'DEL') return 'text-red';
-  return 'text-overlay1';
+  return 'text-subtext0';
 }
 
 function afColorClass(af) {

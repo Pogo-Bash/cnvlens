@@ -9,10 +9,10 @@
     <!-- Data Status Cards -->
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div class="card-static">
-        <h2 class="text-sm font-bold text-overlay1 uppercase tracking-wider mb-2">cnv analysis data</h2>
+        <h2 class="text-sm font-bold text-subtext1 uppercase tracking-wider mb-2">cnv analysis data</h2>
         <div v-if="cnvResults">
           <p class="text-green text-sm">loaded</p>
-          <p class="text-xs text-overlay0 mt-1">{{ cnvResults.cnvs?.length || 0 }} CNVs — {{ cnvResults.chromosomes?.length || 0 }} chromosomes</p>
+          <p class="text-xs text-subtext0 mt-1">{{ cnvResults.cnvs?.length || 0 }} CNVs — {{ cnvResults.chromosomes?.length || 0 }} chromosomes</p>
         </div>
         <div v-else>
           <p class="text-peach text-sm">no data</p>
@@ -21,10 +21,10 @@
       </div>
 
       <div class="card-static">
-        <h2 class="text-sm font-bold text-overlay1 uppercase tracking-wider mb-2">variant calling data</h2>
+        <h2 class="text-sm font-bold text-subtext1 uppercase tracking-wider mb-2">variant calling data</h2>
         <div v-if="variantResults">
           <p class="text-green text-sm">loaded</p>
-          <p class="text-xs text-overlay0 mt-1">{{ variantResults.total_variants || 0 }} variants — {{ variantResults.chromosomes_processed?.length || 0 }} chromosomes</p>
+          <p class="text-xs text-subtext0 mt-1">{{ variantResults.total_variants || 0 }} variants — {{ variantResults.chromosomes_processed?.length || 0 }} chromosomes</p>
         </div>
         <div v-else>
           <p class="text-peach text-sm">no data</p>
@@ -38,7 +38,7 @@
 
       <!-- CNV Visualizations -->
       <div v-if="cnvResults" class="space-y-6">
-        <h2 class="text-sm font-bold text-overlay1 uppercase tracking-wider">copy number variation plots</h2>
+        <h2 class="text-sm font-bold text-subtext1 uppercase tracking-wider">copy number variation plots</h2>
 
         <div class="card-static">
           <div class="flex justify-between items-center mb-3">
@@ -76,7 +76,7 @@
 
       <!-- Variant Visualizations -->
       <div v-if="variantResults" class="space-y-6">
-        <h2 class="text-sm font-bold text-overlay1 uppercase tracking-wider">variant analysis plots</h2>
+        <h2 class="text-sm font-bold text-subtext1 uppercase tracking-wider">variant analysis plots</h2>
 
         <div class="card-static">
           <div class="flex justify-between items-center mb-3">
@@ -125,7 +125,7 @@
 
       <!-- Combined Analysis -->
       <div v-if="cnvResults && variantResults" class="space-y-6">
-        <h2 class="text-sm font-bold text-overlay1 uppercase tracking-wider">integrated analysis</h2>
+        <h2 class="text-sm font-bold text-subtext1 uppercase tracking-wider">integrated analysis</h2>
 
         <div class="card-static">
           <h3 class="text-sm font-bold text-text mb-3">per-chromosome summary</h3>
@@ -144,8 +144,19 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
+import { useHead } from '@unhead/vue';
 import { opfsManager } from '../utils/opfs-manager.js';
 import Plotly from 'plotly.js-dist-min';
+
+useHead({
+  title: 'Visualization — CNVLens',
+  meta: [
+    { name: 'description', content: 'Generate publication-ready CNV and variant plots with PNG/SVG export.' },
+  ],
+  link: [
+    { rel: 'canonical', href: 'https://swapdoesbioandis-a.dev/cnvlens/visualization' },
+  ],
+})
 
 // Catppuccin-themed Plotly layout base
 const plotTheme = {

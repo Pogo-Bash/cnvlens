@@ -4,17 +4,51 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/cnvlens/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#11111b" />
-    <meta name="description" content="Browser-based CNV caller for BAM files — detect copy number variations locally via WebAssembly, no upload required." />
-    <meta property="og:title" content="CNVLens — Browser-based CNV caller" />
-    <meta property="og:description" content="Detect copy number variations in BAM files entirely in your browser via WebAssembly. No server, no uploads." />
-    <meta property="og:image" content="/cnvlens/cnvlens-logo.svg" />
-    <meta property="og:url" content="https://swapdoesbioandis-a.dev/cnvlens" />
-    <link rel="canonical" href="https://swapdoesbioandis-a.dev/cnvlens" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet" />
-    <title>CNVLens — Browser-based CNV caller for sequencing data</title>
+    <title>CNVLens — Browser-based CNV caller for BAM files</title>
+    <meta name="description" content="Detect copy number variations in sequencing data directly in your browser. Upload a BAM file, get CNV calls with confidence scores — no server, no install.">
+
+    <!-- Canonical -->
+    <link rel="canonical" href="https://swapdoesbioandis-a.dev/cnvlens">
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="CNVLens — Browser-based CNV caller">
+    <meta property="og:description" content="Detect copy number variations in sequencing data directly in your browser. No server, no install.">
+    <meta property="og:url" content="https://swapdoesbioandis-a.dev/cnvlens">
+    <meta property="og:image" content="https://swapdoesbioandis-a.dev/cnvlens/og-image.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="CNVLens — Browser-based CNV caller">
+    <meta name="twitter:description" content="Detect copy number variations in sequencing data directly in your browser.">
+    <meta name="twitter:image" content="https://swapdoesbioandis-a.dev/cnvlens/og-image.png">
+
+    <!-- Theme -->
+    <meta name="theme-color" content="#1e1e2e">
+
+    <!-- Structured data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "CNVLens",
+      "applicationCategory": "Bioinformatics",
+      "operatingSystem": "Web Browser",
+      "description": "Browser-based CNV caller for sequencing data. Detects copy number variations from BAM files using GC correction, mappability masking, and CBS-lite segmentation with confidence scoring.",
+      "url": "https://swapdoesbioandis-a.dev/cnvlens",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "author": {
+        "@type": "Person",
+        "name": "Swap"
+      }
+    }
+    </script>
   </head>
   <body>
     <div id="app"></div>

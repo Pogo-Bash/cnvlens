@@ -19,7 +19,7 @@
       <span class="status-dot bg-green"></span>
       <span class="text-sm text-subtext1">
         python bioinformatics pipeline ready — pure python BAM parser + numpy
-        <span v-if="pyodidePool.poolReady.value" class="text-overlay1"> | multi-threaded ({{ pyodidePool.totalWorkers.value }} workers)</span>
+        <span v-if="pyodidePool.poolReady.value" class="text-subtext0"> | multi-threaded ({{ pyodidePool.totalWorkers.value }} workers)</span>
       </span>
     </div>
 
@@ -48,11 +48,11 @@
 
     <!-- Upload Section -->
     <div class="card-static">
-      <h2 class="text-sm font-bold text-overlay1 uppercase tracking-wider mb-4">upload sequencing data</h2>
+      <h2 class="text-sm font-bold text-subtext1 uppercase tracking-wider mb-4">upload sequencing data</h2>
 
       <!-- BAM File Upload -->
       <div class="mb-4">
-        <label class="input-label">tumor BAM file <span class="text-overlay0 font-normal">— required</span></label>
+        <label class="input-label">tumor BAM file <span class="text-subtext0 font-normal">— required</span></label>
         <input
           type="file"
           class="input-field cursor-pointer"
@@ -65,7 +65,7 @@
 
       <!-- BAI Index Upload -->
       <div class="mb-4">
-        <label class="input-label">BAI index file <span class="text-overlay0 font-normal">— optional, speeds up single-chromosome analysis</span></label>
+        <label class="input-label">BAI index file <span class="text-subtext0 font-normal">— optional, speeds up single-chromosome analysis</span></label>
         <input
           type="file"
           class="input-field cursor-pointer"
@@ -77,7 +77,7 @@
       </div>
 
       <!-- Analysis Options -->
-      <h3 class="text-sm font-bold text-overlay1 uppercase tracking-wider mb-3 mt-6">analysis options</h3>
+      <h3 class="text-sm font-bold text-subtext1 uppercase tracking-wider mb-3 mt-6">analysis options</h3>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
@@ -102,7 +102,7 @@
       </div>
 
       <!-- CNV Detection Thresholds -->
-      <h3 class="text-sm font-bold text-overlay1 uppercase tracking-wider mb-3 mt-6">cnv detection thresholds</h3>
+      <h3 class="text-sm font-bold text-subtext1 uppercase tracking-wider mb-3 mt-6">cnv detection thresholds</h3>
 
       <div class="flex items-center gap-3 mb-4">
         <label class="input-label mb-0 cursor-pointer flex items-center gap-2">
@@ -150,7 +150,7 @@
           </span>
         </button>
 
-        <p v-if="!pyodide.isReady.value && !pyodide.error.value" class="text-xs text-overlay1 mt-2">
+        <p v-if="!pyodide.isReady.value && !pyodide.error.value" class="text-xs text-subtext0 mt-2">
           python environment loading in background...
         </p>
       </div>
@@ -191,59 +191,59 @@
       <!-- Summary Stats -->
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div class="card-static">
-          <p class="text-xs text-overlay1 uppercase tracking-wider">total CNVs</p>
+          <p class="text-xs text-subtext1 uppercase tracking-wider">total CNVs</p>
           <p class="text-2xl font-bold text-text mt-1">{{ results.cnvs.length }}</p>
         </div>
         <div class="card-static">
-          <p class="text-xs text-overlay1 uppercase tracking-wider">amplifications</p>
+          <p class="text-xs text-subtext1 uppercase tracking-wider">amplifications</p>
           <p class="text-2xl font-bold text-red mt-1">{{ amplificationCount }}</p>
         </div>
         <div class="card-static">
-          <p class="text-xs text-overlay1 uppercase tracking-wider">deletions</p>
+          <p class="text-xs text-subtext1 uppercase tracking-wider">deletions</p>
           <p class="text-2xl font-bold text-blue mt-1">{{ deletionCount }}</p>
         </div>
         <div class="card-static">
-          <p class="text-xs text-overlay1 uppercase tracking-wider">window size</p>
+          <p class="text-xs text-subtext1 uppercase tracking-wider">window size</p>
           <p class="text-2xl font-bold text-text mt-1 font-mono">{{ formatNumber(results.windowSize) }}</p>
-          <p class="text-xs text-overlay0">base pairs</p>
+          <p class="text-xs text-subtext0">base pairs</p>
         </div>
       </div>
 
       <!-- Coverage Quality Stats -->
       <div v-if="results?.coverage_stats" class="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div class="card-static">
-          <p class="text-xs text-overlay1 uppercase tracking-wider">coverage quality</p>
+          <p class="text-xs text-subtext1 uppercase tracking-wider">coverage quality</p>
           <p class="text-lg font-bold mt-1" :class="{
             'text-red': results.coverage_stats.class === 'low',
             'text-peach': results.coverage_stats.class === 'medium',
             'text-green': results.coverage_stats.class === 'high'
           }">{{ results.coverage_stats.class }}</p>
-          <p class="text-xs text-overlay0">{{ results.coverage_stats.median.toFixed(1) }}x median</p>
+          <p class="text-xs text-subtext0">{{ results.coverage_stats.median.toFixed(1) }}x median</p>
         </div>
         <div class="card-static">
-          <p class="text-xs text-overlay1 uppercase tracking-wider">detection mode</p>
+          <p class="text-xs text-subtext1 uppercase tracking-wider">detection mode</p>
           <p class="text-lg font-bold text-text mt-1">
             {{ results.coverage_stats.class === 'low' ? 'conservative' :
                results.coverage_stats.class === 'medium' ? 'standard' : 'sensitive' }}
           </p>
-          <p class="text-xs text-overlay0">auto-adjusted thresholds</p>
+          <p class="text-xs text-subtext0">auto-adjusted thresholds</p>
         </div>
         <div class="card-static">
-          <p class="text-xs text-overlay1 uppercase tracking-wider">mean coverage</p>
+          <p class="text-xs text-subtext1 uppercase tracking-wider">mean coverage</p>
           <p class="text-lg font-bold text-text mt-1 font-mono">{{ results.coverage_stats.mean.toFixed(1) }}x</p>
         </div>
         <div v-if="results.method" class="card-static">
-          <p class="text-xs text-overlay1 uppercase tracking-wider">processing</p>
+          <p class="text-xs text-subtext1 uppercase tracking-wider">processing</p>
           <p class="text-lg font-bold text-text mt-1">
             {{ results.method === 'pyodide-python-parallel' ? 'multi-threaded' : 'single-threaded' }}
           </p>
-          <p class="text-xs text-overlay0">{{ results.worker_count ? `${results.worker_count} workers` : 'main thread' }}</p>
+          <p class="text-xs text-subtext0">{{ results.worker_count ? `${results.worker_count} workers` : 'main thread' }}</p>
         </div>
       </div>
 
       <!-- Export Options -->
       <div class="card-static">
-        <h2 class="text-sm font-bold text-overlay1 uppercase tracking-wider mb-3">export results</h2>
+        <h2 class="text-sm font-bold text-subtext1 uppercase tracking-wider mb-3">export results</h2>
         <div class="flex flex-wrap gap-2">
           <button class="btn-ghost text-xs" @click="exportAsJSON">download JSON</button>
           <button class="btn-ghost text-xs" @click="exportAsCSV">download CSV</button>
@@ -261,6 +261,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
+import { useHead } from '@unhead/vue';
 import CNVVisualization from '../components/CNVVisualization.vue';
 import BrowserCompatWarning from '../components/BrowserCompatWarning.vue';
 import TerminalLog from '../components/TerminalLog.vue';
@@ -268,6 +269,16 @@ import { analysisService } from '../services/analysis-service.js';
 import { opfsManager } from '../utils/opfs-manager.js';
 import { useGlobalPyodide } from '../composables/usePyodide.js';
 import { usePyodidePool } from '../composables/usePyodidePool.js';
+
+useHead({
+  title: 'CNV Analysis — CNVLens',
+  meta: [
+    { name: 'description', content: 'Detect copy number variations from BAM files with CBS-lite segmentation, GC correction, and confidence scoring.' },
+  ],
+  link: [
+    { rel: 'canonical', href: 'https://swapdoesbioandis-a.dev/cnvlens/cnv-analysis' },
+  ],
+})
 
 const pyodide = useGlobalPyodide();
 const pyodidePool = usePyodidePool();

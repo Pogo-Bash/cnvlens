@@ -46,5 +46,12 @@
 </template>
 
 <script setup>
-// Dashboard component
+import { useHead } from '@unhead/vue'
+
+useHead({
+  title: 'CNVLens — Browser-based CNV caller for BAM files',
+  meta: [
+    { name: 'description', content: 'Detect copy number variations in sequencing data directly in your browser. Upload a BAM file, get CNV calls with confidence scores — no server, no install.' },
+  ],
+})
 </script>
