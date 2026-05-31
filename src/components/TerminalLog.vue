@@ -1,7 +1,7 @@
 <template>
   <div class="terminal-log" ref="logContainer">
     <div v-for="(line, idx) in lines" :key="idx" class="flex gap-2 leading-relaxed">
-      <span class="text-overlay0 select-none shrink-0">{{ line.timestamp }}</span>
+      <span class="text-subtext0 select-none shrink-0">{{ line.timestamp }}</span>
       <span
         v-if="line.level"
         class="shrink-0 select-none"
@@ -9,7 +9,7 @@
           'text-green': line.level === 'INFO',
           'text-peach': line.level === 'WARN',
           'text-red': line.level === 'ERROR',
-          'text-overlay1': line.level === 'DEBUG',
+          'text-subtext0': line.level === 'DEBUG',
         }"
       >[{{ line.level }}]</span>
       <span class="text-subtext1">{{ line.message }}</span>

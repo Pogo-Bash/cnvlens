@@ -6,7 +6,7 @@
       <div class="flex-1">
         <p class="text-sm text-text font-bold">browser compatibility issues</p>
         <p v-for="(issue, idx) in compatReport.issues" :key="idx" class="text-xs text-subtext0">{{ issue }}</p>
-        <p class="text-xs text-overlay1 mt-1">recommended: Chrome 86+, Firefox 111+, Edge 86+</p>
+        <p class="text-xs text-subtext0 mt-1">recommended: Chrome 86+, Firefox 111+, Edge 86+</p>
       </div>
       <button class="btn-ghost px-2 py-1 text-xs" @click="showDetails = !showDetails">
         {{ showDetails ? 'hide' : 'details' }}
@@ -36,7 +36,7 @@
 
     <!-- Details Panel -->
     <div v-if="showDetails" class="card-static mb-3">
-      <h3 class="text-sm font-bold text-overlay1 uppercase tracking-wider mb-3">compatibility details</h3>
+      <h3 class="text-sm font-bold text-subtext1 uppercase tracking-wider mb-3">compatibility details</h3>
       <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
         <div v-for="item in detailItems" :key="item.label" class="flex items-center gap-2">
           <span class="status-dot" :class="item.supported ? 'bg-green' : 'bg-red'"></span>
@@ -44,7 +44,7 @@
         </div>
       </div>
       <div class="mt-3 pt-3 border-t border-surface0">
-        <p class="text-xs text-overlay0">minimum versions: Chrome 86+, Firefox 111+, Edge 86+, Safari 15.2+</p>
+        <p class="text-xs text-subtext0">minimum versions: Chrome 86+, Firefox 111+, Edge 86+, Safari 15.2+</p>
       </div>
     </div>
   </div>

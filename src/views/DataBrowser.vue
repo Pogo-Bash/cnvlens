@@ -7,7 +7,7 @@
     </div>
 
     <div class="card-static">
-      <h2 class="text-sm font-bold text-overlay1 uppercase tracking-wider mb-4">search parameters</h2>
+      <h2 class="text-sm font-bold text-subtext1 uppercase tracking-wider mb-4">search parameters</h2>
 
       <div class="grid grid-cols-1 gap-4">
         <div>
@@ -51,5 +51,15 @@
 </template>
 
 <script setup>
-// Data browser logic will go here
+import { useHead } from '@unhead/vue'
+
+useHead({
+  title: 'Data Browser — CNVLens',
+  meta: [
+    { name: 'description', content: 'Browse and search genomic data from TCGA and ICGC with CNVLens.' },
+  ],
+  link: [
+    { rel: 'canonical', href: 'https://swapdoesbioandis-a.dev/cnvlens/data-browser' },
+  ],
+})
 </script>

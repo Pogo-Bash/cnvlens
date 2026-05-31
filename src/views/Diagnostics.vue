@@ -19,7 +19,7 @@
 
     <!-- Benchmark Controls -->
     <div class="card-static">
-      <h2 class="text-sm font-bold text-overlay1 uppercase tracking-wider mb-4">benchmark</h2>
+      <h2 class="text-sm font-bold text-subtext1 uppercase tracking-wider mb-4">benchmark</h2>
       <p class="text-xs text-subtext0 mb-4">Loads the bundled NA12878 EGFR sample (5.7MB) and runs variant calling + CNV analysis. Reports timing for each phase.</p>
 
       <div class="flex gap-3">
@@ -49,30 +49,30 @@
     <div v-if="benchmarkResults" class="space-y-6">
       <!-- Timing -->
       <div class="card-static">
-        <h2 class="text-sm font-bold text-overlay1 uppercase tracking-wider mb-4">timing results</h2>
+        <h2 class="text-sm font-bold text-subtext1 uppercase tracking-wider mb-4">timing results</h2>
         <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
           <div>
-            <p class="text-xs text-overlay1">variant calling</p>
+            <p class="text-xs text-subtext0">variant calling</p>
             <p class="text-xl font-bold font-mono text-text">{{ formatTime(benchmarkResults.variantTime) }}</p>
           </div>
           <div>
-            <p class="text-xs text-overlay1">CNV analysis</p>
+            <p class="text-xs text-subtext0">CNV analysis</p>
             <p class="text-xl font-bold font-mono text-text">{{ formatTime(benchmarkResults.cnvTime) }}</p>
           </div>
           <div>
-            <p class="text-xs text-overlay1">total</p>
+            <p class="text-xs text-subtext0">total</p>
             <p class="text-xl font-bold font-mono text-mauve">{{ formatTime(benchmarkResults.totalTime) }}</p>
           </div>
           <div>
-            <p class="text-xs text-overlay1">variants found</p>
+            <p class="text-xs text-subtext0">variants found</p>
             <p class="text-lg font-bold text-text">{{ benchmarkResults.variantCount }}</p>
           </div>
           <div>
-            <p class="text-xs text-overlay1">CNVs found</p>
+            <p class="text-xs text-subtext0">CNVs found</p>
             <p class="text-lg font-bold text-text">{{ benchmarkResults.cnvCount }}</p>
           </div>
           <div v-if="benchmarkResults.runs > 1">
-            <p class="text-xs text-overlay1">runs (median)</p>
+            <p class="text-xs text-subtext0">runs (median)</p>
             <p class="text-lg font-bold text-text">{{ benchmarkResults.runs }}x</p>
           </div>
         </div>
@@ -80,7 +80,7 @@
 
       <!-- Warnings -->
       <div v-if="benchmarkResults.warnings.length > 0" class="card-static">
-        <h2 class="text-sm font-bold text-overlay1 uppercase tracking-wider mb-4">warnings</h2>
+        <h2 class="text-sm font-bold text-subtext1 uppercase tracking-wider mb-4">warnings</h2>
         <ul class="text-xs text-subtext0 list-disc list-inside space-y-1">
           <li v-for="(w, i) in benchmarkResults.warnings" :key="i">{{ w }}</li>
         </ul>
@@ -88,22 +88,22 @@
 
       <!-- Reference Mode -->
       <div class="card-static">
-        <h2 class="text-sm font-bold text-overlay1 uppercase tracking-wider mb-4">analysis details</h2>
+        <h2 class="text-sm font-bold text-subtext1 uppercase tracking-wider mb-4">analysis details</h2>
         <div class="grid grid-cols-2 gap-4 text-xs">
           <div>
-            <span class="text-overlay1">reference mode:</span>
+            <span class="text-subtext0">reference mode:</span>
             <span class="text-text ml-2">{{ benchmarkResults.referenceUsed }}</span>
           </div>
           <div>
-            <span class="text-overlay1">BAI index:</span>
+            <span class="text-subtext0">BAI index:</span>
             <span class="text-text ml-2">{{ benchmarkResults.usedBai ? 'yes' : 'no' }}</span>
           </div>
           <div>
-            <span class="text-overlay1">CNV method:</span>
+            <span class="text-subtext0">CNV method:</span>
             <span class="text-text ml-2">{{ benchmarkResults.cnvMethod }}</span>
           </div>
           <div>
-            <span class="text-overlay1">GC corrected:</span>
+            <span class="text-subtext0">GC corrected:</span>
             <span class="text-text ml-2">{{ benchmarkResults.gcCorrected ? 'yes' : 'no' }}</span>
           </div>
         </div>
@@ -112,7 +112,7 @@
 
     <!-- Terminal Log -->
     <div v-if="logLines.length > 0" class="card-static">
-      <h2 class="text-sm font-bold text-overlay1 uppercase tracking-wider mb-3">console output</h2>
+      <h2 class="text-sm font-bold text-subtext1 uppercase tracking-wider mb-3">console output</h2>
       <div class="font-mono text-xs text-subtext0 max-h-64 overflow-y-auto space-y-0.5 bg-mantle p-3 rounded">
         <div v-for="(line, i) in logLines" :key="i">{{ line }}</div>
       </div>
@@ -122,7 +122,16 @@
 
 <script setup>
 import { ref } from 'vue';
+import { useHead } from '@unhead/vue';
 import { useGlobalWasm } from '../composables/useWasm.js';
+
+useHead({
+  title: 'Diagnostics — CNVLens',
+  meta: [
+    { name: 'description', content: 'Benchmark pipeline performance and validate CNV/variant calling results.' },
+    { name: 'robots', content: 'noindex' },
+  ],
+})
 
 const engine = useGlobalWasm();
 
