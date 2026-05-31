@@ -4,17 +4,16 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "npm run copy-pyodide && vite",
-    "build": "npm run copy-pyodide && vite build",
+    "dev": "vite",
+    "build": "vite build",
     "build:clean": "rm -rf dist node_modules/.vite && npm run build",
+    "build:wasm": "wasm-pack build --release --target web --out-dir src/wasm rust/cnvlens-core",
     "start": "node server.js",
-    "preview": "vite preview",
-    "copy-pyodide": "node scripts/copy-pyodide.js"
+    "preview": "vite preview"
   },
   "dependencies": {
     "d3": "^7.9.0",
     "plotly.js-dist-min": "^3.1.2",
-    "pyodide": "^0.24.1",
     "vue": "^3.5.22",
     "vue-router": "^4.6.3"
   },

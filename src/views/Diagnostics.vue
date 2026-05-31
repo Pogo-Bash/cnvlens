@@ -6,15 +6,15 @@
       <p class="text-subtext0 leading-relaxed">run benchmarks on the bundled NA12878 sample data and inspect timing/warnings output</p>
     </div>
 
-    <!-- Pyodide Status -->
-    <div v-if="pyodide.isInitializing.value" class="status-row">
+    <!-- Engine Status -->
+    <div v-if="engine.isInitializing.value" class="status-row">
       <span class="status-dot bg-blue animate-pulse"></span>
-      <span class="text-sm text-subtext1">python environment loading — {{ pyodide.status.value }} ({{ pyodide.progress.value }}%)</span>
+      <span class="text-sm text-subtext1">WASM engine loading — {{ engine.status.value }} ({{ engine.progress.value }}%)</span>
     </div>
 
-    <div v-if="pyodide.isReady.value" class="status-row border-green/30">
+    <div v-if="engine.isReady.value" class="status-row border-green/30">
       <span class="status-dot bg-green"></span>
-      <span class="text-sm text-subtext1">python environment ready</span>
+      <span class="text-sm text-subtext1">WASM engine ready</span>
     </div>
 
     <!-- Benchmark Controls -->
@@ -26,7 +26,7 @@
         <button
           class="btn-primary"
           @click="runBenchmark"
-          :disabled="running || !pyodide.isReady.value"
+          :disabled="running || !engine.isReady.value"
         >
           <span v-if="!running">run benchmark (1x)</span>
           <span v-else class="flex items-center gap-2">
@@ -38,7 +38,7 @@
         <button
           class="btn-ghost"
           @click="runBenchmarkMulti"
-          :disabled="running || !pyodide.isReady.value"
+          :disabled="running || !engine.isReady.value"
         >
           run 3x (median)
         </button>
@@ -122,9 +122,9 @@
 
 <script setup>
 import { ref } from 'vue';
-import { useGlobalPyodide } from '../composables/usePyodide.js';
+import { useGlobalWasm } from '../composables/useWasm.js';
 
-const pyodide = useGlobalPyodide();
+const engine = useGlobalWasm();
 
 const running = ref(false);
 const benchmarkResults = ref(null);
@@ -150,7 +150,7 @@ async function loadSampleData() {
 async function runOnce(bamData, baiData) {
   // Variant calling
   const t1 = performance.now();
-  const variantResult = await pyodide.callVariants(bamData, {
+  const variantResult = await engine.callVariants(bamData, {
     chromosomes: ['7'],
     minDepth: 10,
     minBaseQuality: 20,
@@ -163,7 +163,7 @@ async function runOnce(bamData, baiData) {
   const t2 = performance.now();
 
   // CNV analysis
-  const cnvResult = await pyodide.analyzeBam(bamData, {
+  const cnvResult = await engine.analyzeBam(bamData, {
     windowSize: 10000,
     chromosomes: ['7'],
     baiData

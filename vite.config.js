@@ -58,19 +58,14 @@ export default defineConfig({
     ],
   },
   
-  optimizeDeps: {
-    exclude: ['pyodide'] // Don't pre-bundle Pyodide
-  },
-  
   build: {
     target: 'esnext',
     // Don't inline WASM files
     assetsInlineLimit: 0,
   },
-  
-  // IMPORTANT: Workers MUST use IIFE format for importScripts() to work
-  // Classic workers (non-module) require this setting
+
+  // Module workers so the worker can `import` the wasm-bindgen glue.
   worker: {
-    format: 'iife',
+    format: 'es',
   },
 })

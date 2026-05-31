@@ -3,29 +3,29 @@
     <!-- Header -->
     <div class="max-w-2xl">
       <h1 class="text-2xl font-bold text-text mb-2">variant calling pipeline</h1>
-      <p class="text-subtext0 leading-relaxed">detect somatic mutations in lung cancer samples using python-powered pileup analysis (WASM)</p>
+      <p class="text-subtext0 leading-relaxed">detect somatic mutations in lung cancer samples using a Rust/WASM pileup caller</p>
     </div>
 
     <!-- Browser Compatibility Warning -->
     <BrowserCompatWarning />
 
-    <!-- Pyodide Status -->
+    <!-- Engine Status -->
     <div v-if="variantCaller.isInitializing.value" class="status-row">
       <span class="status-dot bg-blue animate-pulse"></span>
       <div class="flex-1">
-        <span class="text-sm text-subtext1">python environment loading — {{ variantCaller.status.value }} ({{ variantCaller.progress.value }}%)</span>
+        <span class="text-sm text-subtext1">WASM engine loading — {{ variantCaller.status.value }} ({{ variantCaller.progress.value }}%)</span>
       </div>
     </div>
 
     <div v-if="variantCaller.isReady.value" class="status-row border-green/30">
       <span class="status-dot bg-green"></span>
-      <span class="text-sm text-subtext1">python variant calling ready — pileup + numpy (WASM)</span>
+      <span class="text-sm text-subtext1">Rust/WASM variant caller ready — native pileup analysis</span>
     </div>
 
     <div v-if="variantCaller.error.value" class="status-row border-red/30">
       <span class="status-dot bg-red"></span>
       <div class="flex-1">
-        <span class="text-sm text-text font-bold">python environment error</span>
+        <span class="text-sm text-text font-bold">WASM engine error</span>
         <p class="text-xs text-subtext0">{{ variantCaller.error.value }}</p>
       </div>
     </div>
@@ -149,7 +149,7 @@
         </button>
 
         <p v-if="!variantCaller.isReady.value && !variantCaller.error.value" class="text-xs text-overlay1 mt-2">
-          python environment loading in background...
+          WASM engine loading in background...
         </p>
       </div>
     </div>
@@ -296,7 +296,7 @@
     <!-- Getting Started -->
     <div v-if="!results && !analyzing && logLines.length === 0" class="status-row">
       <span class="status-dot bg-blue"></span>
-      <span class="text-sm text-subtext0">upload a BAM file to detect SNVs using python-based pileup analysis. indel calling not yet implemented.</span>
+      <span class="text-sm text-subtext0">upload a BAM file to detect SNVs using Rust/WASM pileup analysis. indel calling not yet implemented.</span>
     </div>
 
     <!-- Attribution -->
@@ -414,7 +414,7 @@ onMounted(async () => {
     console.log('No previous variant results found');
   }
 
-  console.log('Variant Calling view mounted - Pyodide loading in background');
+  console.log('Variant Calling view mounted - WASM engine loading in background');
 });
 
 // Methods
@@ -487,7 +487,7 @@ async function runVariantCalling() {
     }
 
     // Run variant calling
-    addLog('starting python pileup analysis...');
+    addLog('starting Rust/WASM pileup analysis...');
     const variantResults = await variantCaller.callVariants(arrayBuffer, {
       minDepth: minDepth.value,
       minBaseQuality: minBaseQuality.value,

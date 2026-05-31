@@ -3,36 +3,30 @@
     <!-- Header -->
     <div class="max-w-2xl">
       <h1 class="text-2xl font-bold text-text mb-2">copy number variation analysis</h1>
-      <p class="text-subtext0 leading-relaxed">detect gene amplifications and deletions in cancer genomes using python + numpy (WASM-powered)</p>
+      <p class="text-subtext0 leading-relaxed">detect gene amplifications and deletions in cancer genomes using a Rust/WASM pipeline</p>
     </div>
 
     <!-- Browser Compatibility Warning -->
     <BrowserCompatWarning />
 
-    <!-- Pyodide Status -->
-    <div v-if="pyodide.isInitializing.value" class="status-row">
+    <!-- Engine Status -->
+    <div v-if="engine.isInitializing.value" class="status-row">
       <span class="status-dot bg-blue animate-pulse"></span>
-      <span class="text-sm text-subtext1">python environment loading — {{ pyodide.status.value }} ({{ pyodide.progress.value }}%)</span>
+      <span class="text-sm text-subtext1">WASM engine loading — {{ engine.status.value }} ({{ engine.progress.value }}%)</span>
     </div>
 
-    <div v-if="pyodide.isReady.value" class="status-row border-green/30">
+    <div v-if="engine.isReady.value" class="status-row border-green/30">
       <span class="status-dot bg-green"></span>
       <span class="text-sm text-subtext1">
-        python bioinformatics pipeline ready — pure python BAM parser + numpy
-        <span v-if="pyodidePool.poolReady.value" class="text-overlay1"> | multi-threaded ({{ pyodidePool.totalWorkers.value }} workers)</span>
+        Rust/WASM pipeline ready — native BAM parser + CNV detection
       </span>
     </div>
 
-    <div v-if="pyodidePool.poolInitializing.value" class="status-row">
-      <span class="status-dot bg-sapphire animate-pulse"></span>
-      <span class="text-sm text-subtext1">initializing worker threads... ({{ pyodidePool.workersReady.value }}/{{ pyodidePool.totalWorkers.value }} ready)</span>
-    </div>
-
-    <div v-if="pyodide.error.value" class="status-row border-red/30">
+    <div v-if="engine.error.value" class="status-row border-red/30">
       <span class="status-dot bg-red"></span>
       <div class="flex-1">
-        <span class="text-sm text-text font-bold">python environment error</span>
-        <p class="text-xs text-subtext0">{{ pyodide.error.value }} — will use fallback if available</p>
+        <span class="text-sm text-text font-bold">WASM engine error</span>
+        <p class="text-xs text-subtext0">{{ engine.error.value }}</p>
       </div>
     </div>
 
@@ -150,8 +144,8 @@
           </span>
         </button>
 
-        <p v-if="!pyodide.isReady.value && !pyodide.error.value" class="text-xs text-overlay1 mt-2">
-          python environment loading in background...
+        <p v-if="!engine.isReady.value && !engine.error.value" class="text-xs text-overlay1 mt-2">
+          WASM engine loading in background...
         </p>
       </div>
     </div>
@@ -233,11 +227,8 @@
           <p class="text-lg font-bold text-text mt-1 font-mono">{{ results.coverage_stats.mean.toFixed(1) }}x</p>
         </div>
         <div v-if="results.method" class="card-static">
-          <p class="text-xs text-overlay1 uppercase tracking-wider">processing</p>
-          <p class="text-lg font-bold text-text mt-1">
-            {{ results.method === 'pyodide-python-parallel' ? 'multi-threaded' : 'single-threaded' }}
-          </p>
-          <p class="text-xs text-overlay0">{{ results.worker_count ? `${results.worker_count} workers` : 'main thread' }}</p>
+          <p class="text-xs text-overlay1 uppercase tracking-wider">engine</p>
+          <p class="text-lg font-bold text-text mt-1">{{ results.method }}</p>
         </div>
       </div>
 
@@ -254,7 +245,7 @@
     <!-- Getting Started -->
     <div v-if="!results && !analyzing && logLines.length === 0" class="status-row">
       <span class="status-dot bg-blue"></span>
-      <span class="text-sm text-subtext0">upload a BAM file to detect copy number variations using python-based read depth analysis.</span>
+      <span class="text-sm text-subtext0">upload a BAM file to detect copy number variations using Rust/WASM read-depth analysis.</span>
     </div>
   </div>
 </template>
@@ -266,11 +257,9 @@ import BrowserCompatWarning from '../components/BrowserCompatWarning.vue';
 import TerminalLog from '../components/TerminalLog.vue';
 import { analysisService } from '../services/analysis-service.js';
 import { opfsManager } from '../utils/opfs-manager.js';
-import { useGlobalPyodide } from '../composables/usePyodide.js';
-import { usePyodidePool } from '../composables/usePyodidePool.js';
+import { useGlobalWasm } from '../composables/useWasm.js';
 
-const pyodide = useGlobalPyodide();
-const pyodidePool = usePyodidePool();
+const engine = useGlobalWasm();
 
 // State
 const selectedFile = ref(null);
@@ -330,13 +319,7 @@ onMounted(async () => {
     console.log('No previous CNV results found');
   }
 
-  analysisService.initialize(pyodide);
-
-  pyodidePool.initializePool().catch(err => {
-    console.warn('Worker pool initialization failed:', err);
-  });
-
-  analysisService.initializePool(pyodidePool);
+  analysisService.initialize(engine);
 });
 
 // Methods

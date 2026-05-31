@@ -20,7 +20,7 @@
 
     <footer class="border-t border-surface0 px-6 py-6">
       <div class="max-w-6xl mx-auto text-center text-xs text-overlay0">
-        browser-based genomics analysis powered by pyodide
+        browser-based genomics analysis powered by Rust/WASM
       </div>
     </footer>
   </div>

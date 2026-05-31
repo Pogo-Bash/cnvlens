@@ -8,8 +8,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
-# Copy source and build. The build script also copies Pyodide runtime
-# files from node_modules into public/pyodide/ before running vite build.
+# Copy source and build. The Rust/WASM bundle is committed under src/wasm/,
+# so vite build picks it up without needing a Rust toolchain in the image.
 COPY . .
 RUN npm run build
 

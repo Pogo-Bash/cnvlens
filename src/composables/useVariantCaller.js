@@ -1,12 +1,11 @@
 /**
- * Composable for variant calling using Pyodide worker
- * Wraps the Pyodide worker's variant calling functionality
+ * Composable for variant calling using the Rust/WASM worker.
  */
 
-import { useGlobalPyodide } from './usePyodide.js';
+import { useGlobalWasm } from './useWasm.js';
 
 export function useVariantCaller() {
-  const pyodide = useGlobalPyodide();
+  const engine = useGlobalWasm();
 
   /**
    * Call variants from BAM file
@@ -15,11 +14,11 @@ export function useVariantCaller() {
    * @returns {Promise<Object>} Variant calling results
    */
   const callVariants = async (bamData, options = {}) => {
-    if (!pyodide.isReady.value) {
-      throw new Error('Python environment not ready. Please wait for initialization to complete.');
+    if (!engine.isReady.value) {
+      throw new Error('WASM engine not ready. Please wait for initialization to complete.');
     }
 
-    console.log('🧬 Starting variant calling with Python...');
+    console.log('🧬 Starting variant calling (Rust/WASM)...');
     console.log(`BAM file size: ${(bamData.byteLength / 1024 / 1024).toFixed(2)} MB`);
 
     const filters = {
@@ -36,7 +35,7 @@ export function useVariantCaller() {
 
     console.log('Variant calling filters:', filters);
 
-    const result = await pyodide.callVariants(bamData, filters);
+    const result = await engine.callVariants(bamData, filters);
     console.log(`Variant calling complete: ${result.total_variants} variants found`);
 
     return result;
@@ -54,7 +53,7 @@ export function useVariantCaller() {
     // VCF header
     vcfLines.push('##fileformat=VCFv4.2');
     vcfLines.push(`##fileDate=${new Date().toISOString().split('T')[0].replace(/-/g, '')}`);
-    vcfLines.push('##source=cnvlens-pyodide');
+    vcfLines.push('##source=cnvlens-wasm');
     vcfLines.push('##INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">');
     vcfLines.push('##INFO=<ID=AF,Number=A,Type=Float,Description="Allele Frequency">');
     vcfLines.push('##INFO=<ID=AC,Number=A,Type=Integer,Description="Allele Count">');
@@ -100,10 +99,10 @@ export function useVariantCaller() {
   return {
     callVariants,
     formatToVCF,
-    isReady: pyodide.isReady,
-    isInitializing: pyodide.isInitializing,
-    error: pyodide.error,
-    status: pyodide.status,
-    progress: pyodide.progress
+    isReady: engine.isReady,
+    isInitializing: engine.isInitializing,
+    error: engine.error,
+    status: engine.status,
+    progress: engine.progress
   };
 }

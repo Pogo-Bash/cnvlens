@@ -1,0 +1,17 @@
+{
+  "name": "cnvlens-core",
+  "type": "module",
+  "description": "Rust/WASM BGZF/BAM parser + CNV/SNV pipeline for CNVLens",
+  "version": "0.1.0",
+  "license": "MIT",
+  "files": [
+    "cnvlens_core_bg.wasm",
+    "cnvlens_core.js",
+    "cnvlens_core.d.ts"
+  ],
+  "main": "cnvlens_core.js",
+  "types": "cnvlens_core.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

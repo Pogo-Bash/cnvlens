@@ -7,7 +7,7 @@
       </h1>
       <p class="text-subtext0 leading-relaxed">
         browser-based lung cancer genomics analysis. variant calling and
-        CNV detection run locally in your browser via pyodide — your data
+        CNV detection runs locally in your browser via Rust/WASM — your data
         never leaves the page.
       </p>
       <router-link to="/variant-calling" class="btn-primary mt-6 inline-flex">
