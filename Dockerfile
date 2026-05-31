@@ -4,12 +4,9 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 
-# Install deps. Use `npm install` (not `npm ci`) so the platform-specific
-# optional binaries (e.g. @rollup/rollup-linux-x64-musl) are resolved for the
-# Alpine/musl build image even when the committed lockfile was generated on a
-# different OS. Versions stay pinned by the lockfile.
+# Install deps from the committed lockfile for reproducible builds.
 COPY package.json package-lock.json ./
-RUN npm install --no-audit --no-fund
+RUN npm ci --no-audit --no-fund
 
 # Copy source and build. The Rust/WASM bundle is committed under src/wasm/,
 # so vite build picks it up without needing a Rust toolchain in the image.
