@@ -1,6 +1,6 @@
 # CNVLens
 
-CNVLens is a browser-based tool for copy number variation (CNV) calling from BAM files. It runs a complete CNV detection and variant calling pipeline entirely in the browser via WebAssembly, with no server, no uploads, and no installation. Built as a class project at UIC.
+CNVLens is a browser-based tool for copy number variation (CNV) calling from BAM files. It runs a complete CNV detection and variant calling pipeline entirely in the browser via WebAssembly, with no server, no uploads, and no installation. 
 
 **Live demo:** https://swapdoesbioandis-a.dev/cnvlens
 
