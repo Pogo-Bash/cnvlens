@@ -75,9 +75,38 @@ impl Default for VariantOptions {
     }
 }
 
+/// A genomic region used to drive BAI/CSI random access. `start`/`end` are
+/// 1-based inclusive genomic coordinates; `None` means unbounded on that side.
+/// This is cnvlens-core's own region type so the crate stays independent of the
+/// CodonSplice VM (which has a parallel `runtime::Region` it converts from).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Region {
+    pub chrom: String,
+    pub start: Option<i64>,
+    pub end: Option<i64>,
+}
+
+impl Region {
+    pub fn new(chrom: impl Into<String>) -> Self {
+        Region {
+            chrom: chrom.into(),
+            start: None,
+            end: None,
+        }
+    }
+
+    pub fn with_bounds(chrom: impl Into<String>, start: Option<i64>, end: Option<i64>) -> Self {
+        Region {
+            chrom: chrom.into(),
+            start,
+            end,
+        }
+    }
+}
+
 /// One coverage window. `masked` is only serialized when true (matching the
 /// reference, which omits the key otherwise).
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct CoverageWindow {
     pub chromosome: String,
     pub start: i64,
@@ -89,7 +118,7 @@ pub struct CoverageWindow {
 }
 
 /// One called SNV. Field names match the reference VCF-ish dict.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Variant {
     pub chrom: String,
     pub pos: i64,

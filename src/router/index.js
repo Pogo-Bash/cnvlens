@@ -40,6 +40,11 @@ const router = createRouter({
       name: 'Documentation',
       component: () => import('../views/Documentation.vue')
     },
+    {
+      path: '/splice',
+      name: 'Splice',
+      component: () => import('../views/Splice.vue')
+    },
   ]
 })
 

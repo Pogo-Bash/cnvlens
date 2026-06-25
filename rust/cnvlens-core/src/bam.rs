@@ -4,9 +4,13 @@
 use std::io;
 
 use noodles::bam;
+use noodles::bam::bai;
+use noodles::core::region::Interval;
+use noodles::core::{Position, Region as NoodlesRegion};
 use noodles::sam::alignment::record::Flags;
 use noodles::sam::Header;
 
+use crate::model::Region;
 use crate::AlnRecord;
 
 /// Decode the minimal fields needed for coverage from a noodles record:
@@ -82,6 +86,80 @@ where
     let mut record = bam::Record::default();
     let mut count = 0u64;
     while reader.read_record(&mut record)? != 0 {
+        f(decode_full(&record)?);
+        count += 1;
+    }
+    Ok(count)
+}
+
+// ── BAI / CSI random access ──────────────────────────────────────────────────
+
+/// Read a BAI index from in-memory bytes.
+pub fn read_bai_index(bai_bytes: &[u8]) -> io::Result<bai::Index> {
+    let mut reader = bai::io::Reader::new(io::Cursor::new(bai_bytes));
+    reader.read_index()
+}
+
+/// Build a noodles [`Region`](NoodlesRegion) from our [`Region`]. The interval
+/// is a coarse seek hint — over-fetching is harmless because callers re-filter
+/// each record against the exact predicate — so unbounded sides collapse to a
+/// full-reference scan of the named chromosome.
+fn build_noodles_region(region: &Region) -> NoodlesRegion {
+    let to_pos = |v: i64| Position::try_from((v.max(1)) as usize).unwrap_or(Position::MIN);
+    let interval: Interval = match (region.start, region.end) {
+        (Some(s), Some(e)) => (to_pos(s)..=to_pos(e)).into(),
+        (Some(s), None) => (to_pos(s)..).into(),
+        (None, Some(e)) => (..=to_pos(e)).into(),
+        (None, None) => Interval::from(..),
+    };
+    NoodlesRegion::new(region.chrom.as_str(), interval)
+}
+
+/// Region-restricted core-field scan via BAI. Seeks straight to the BGZF blocks
+/// that overlap `region` instead of scanning from byte 0; returns the number of
+/// records visited (so callers/tests can prove the index was actually used).
+pub fn for_each_region_core<F>(
+    bam_bytes: &[u8],
+    bai_bytes: &[u8],
+    region: &Region,
+    mut f: F,
+) -> io::Result<u64>
+where
+    F: FnMut(i32, i64, u16),
+{
+    let mut reader = bam::io::Reader::new(io::Cursor::new(bam_bytes));
+    let header = reader.read_header()?;
+    let index = read_bai_index(bai_bytes)?;
+    let noodles_region = build_noodles_region(region);
+    let mut query = reader.query(&header, &index, &noodles_region)?;
+    let mut record = bam::Record::default();
+    let mut count = 0u64;
+    while query.read_record(&mut record)? != 0 {
+        let (ref_id, pos, flag) = decode_core(&record)?;
+        f(ref_id, pos, flag);
+        count += 1;
+    }
+    Ok(count)
+}
+
+/// Region-restricted full scan via BAI (sequence + quality decoded).
+pub fn for_each_region_full<F>(
+    bam_bytes: &[u8],
+    bai_bytes: &[u8],
+    region: &Region,
+    mut f: F,
+) -> io::Result<u64>
+where
+    F: FnMut(AlnRecord),
+{
+    let mut reader = bam::io::Reader::new(io::Cursor::new(bam_bytes));
+    let header = reader.read_header()?;
+    let index = read_bai_index(bai_bytes)?;
+    let noodles_region = build_noodles_region(region);
+    let mut query = reader.query(&header, &index, &noodles_region)?;
+    let mut record = bam::Record::default();
+    let mut count = 0u64;
+    while query.read_record(&mut record)? != 0 {
         f(decode_full(&record)?);
         count += 1;
     }

@@ -3,22 +3,189 @@
 //! pileup with strand + position-in-read filters, and a binomial Phred score.
 
 use std::collections::HashMap;
-use std::io;
 
 use serde_json::{json, Value};
 
-use crate::model::{VariantOptions, Variant};
+use crate::error::CoreError;
+use crate::model::{Region, Variant, VariantOptions};
 use crate::stats;
 use crate::{bam, reference_list, AlnRecord};
 
 const WINDOW_SIZE: i64 = 1_000_000;
 const ERROR_RATE: f64 = 0.01;
 
+/// SNV calling, JSON-out. Retained for the CNVLens WASM shim and UI, which
+/// consume the rich result object (variants + filters + warnings).
+///
+/// New native callers (the CodonSplice VM) should use the streaming
+/// [`stream`] / [`collect_variants`] / [`call_variants_region`] entry points,
+/// which return typed [`Variant`]s and a typed [`CoreError`].
+#[deprecated(
+    since = "0.2.0",
+    note = "use stream() / collect_variants() / call_variants_region() for typed, streamable results"
+)]
 pub fn call_variants(bam_bytes: &[u8], bai: Option<&[u8]>, opts: &VariantOptions) -> Value {
-    match call_variants_inner(bam_bytes, bai, opts) {
-        Ok(v) => v,
-        Err(e) => json!({ "error": e.to_string() }),
+    match collect_variants(bam_bytes, bai, opts) {
+        Ok(variants) => variant_result_json(variants, bai, opts),
+        Err(e) => e.to_json(),
     }
+}
+
+/// Streaming SNV calling: yields [`Variant`]s lazily. Internally the pileup is
+/// computed per chromosome, so records become available as each reference is
+/// processed rather than after the whole file. When `region` constraints are
+/// known, prefer [`call_variants_region`] for BAI-seeked access.
+pub fn stream(
+    bam_bytes: &[u8],
+    bai: Option<&[u8]>,
+    opts: &VariantOptions,
+) -> Result<impl Iterator<Item = Variant>, CoreError> {
+    Ok(collect_variants(bam_bytes, bai, opts)?.into_iter())
+}
+
+/// Build the legacy `{ variants, filters, warnings, … }` JSON from typed
+/// variants, preserving the exact shape the CNVLens UI expects.
+fn variant_result_json(variants: Vec<Variant>, bai: Option<&[u8]>, opts: &VariantOptions) -> Value {
+    let mut warnings: Vec<String> = Vec::new();
+    if opts.reference_seqs.is_none() {
+        warnings.push(
+            "No reference FASTA provided - homozygous variants undetectable (reference base inferred from reads)".to_string(),
+        );
+    }
+    if bai.is_none() {
+        warnings.push("No BAI index - full file scan performed".to_string());
+    }
+    warnings.push("No GIAB validation has been performed on this caller".to_string());
+
+    let mut chroms: Vec<String> = Vec::new();
+    for v in &variants {
+        if chroms.last().map(|c| c != &v.chrom).unwrap_or(true) {
+            chroms.push(v.chrom.clone());
+        }
+    }
+
+    json!({
+        "variants": variants,
+        "total_variants": variants.len(),
+        "filters": {
+            "min_depth": opts.min_depth,
+            "min_base_quality": opts.min_base_quality,
+            "min_mapping_quality": opts.min_mapping_quality,
+            "min_variant_reads": opts.min_variant_reads,
+            "min_allele_freq": opts.min_allele_freq,
+            "min_strand_bias": opts.min_strand_bias,
+        },
+        "chromosomes_processed": chroms,
+        "reference_used": if opts.reference_seqs.is_some() { "fasta" } else { "inferred_from_reads" },
+        "warnings": warnings,
+    })
+}
+
+/// Targets (ref_id, name, length) in header order, honoring the chromosome
+/// filter in `opts`.
+fn build_targets(
+    refs: &[(String, usize)],
+    chrom_filter: Option<&[String]>,
+) -> Vec<(i32, String, i64)> {
+    let mut targets = Vec::new();
+    for (ref_idx, (name, len)) in refs.iter().enumerate() {
+        if let Some(filter) = chrom_filter {
+            if !filter.iter().any(|c| c == name) {
+                continue;
+            }
+        }
+        targets.push((ref_idx as i32, name.clone(), *len as i64));
+    }
+    targets
+}
+
+/// Whether a read passes the mapping-quality / flag filters used by the caller.
+#[inline]
+fn keep_read(aln: &AlnRecord, opts: &VariantOptions) -> bool {
+    !(aln.is_unmapped() || aln.is_duplicate() || aln.is_secondary())
+        && (aln.mapq as i64) >= opts.min_mapping_quality as i64
+}
+
+/// Full-file SNV collection: a single sequential scan, pileup per chromosome.
+pub fn collect_variants(
+    bam_bytes: &[u8],
+    _bai: Option<&[u8]>,
+    opts: &VariantOptions,
+) -> Result<Vec<Variant>, CoreError> {
+    let header = bam::read_header(bam_bytes)?;
+    let refs = reference_list(&header);
+    let target_refs = build_targets(&refs, opts.chromosomes.as_deref());
+
+    let target_ids: HashMap<i32, usize> = target_refs
+        .iter()
+        .enumerate()
+        .map(|(slot, (id, _, _))| (*id, slot))
+        .collect();
+    let mut reads_by_target: Vec<Vec<AlnRecord>> = vec![Vec::new(); target_refs.len()];
+    bam::for_each_full(bam_bytes, |aln| {
+        if let Some(&slot) = target_ids.get(&aln.ref_id) {
+            if keep_read(&aln, opts) {
+                reads_by_target[slot].push(aln);
+            }
+        }
+    })?;
+
+    Ok(run_pileups(&target_refs, &reads_by_target, opts))
+}
+
+/// Region-restricted SNV calling via BAI seeking. Resolves `region.chrom` to a
+/// reference, seeks straight to the overlapping BGZF blocks, and piles up only
+/// the reads there.
+pub fn call_variants_region(
+    bam_bytes: &[u8],
+    bai_bytes: &[u8],
+    region: &Region,
+    opts: &VariantOptions,
+) -> Result<Vec<Variant>, CoreError> {
+    let header = bam::read_header(bam_bytes)?;
+    let refs = reference_list(&header);
+
+    let (ref_idx, name, len) = refs
+        .iter()
+        .enumerate()
+        .find(|(_, (n, _))| n == &region.chrom)
+        .map(|(i, (n, l))| (i as i32, n.clone(), *l as i64))
+        .ok_or_else(|| {
+            CoreError::InvalidRegion(format!("chromosome {:?} not in BAM header", region.chrom))
+        })?;
+
+    let mut reads: Vec<AlnRecord> = Vec::new();
+    bam::for_each_region_full(bam_bytes, bai_bytes, region, |aln| {
+        // The index can over-fetch adjacent reference blocks; pin to our ref.
+        if aln.ref_id == ref_idx && keep_read(&aln, opts) {
+            reads.push(aln);
+        }
+    })?;
+
+    let target_refs = vec![(ref_idx, name, len)];
+    let reads_by_target = vec![reads];
+    Ok(run_pileups(&target_refs, &reads_by_target, opts))
+}
+
+/// Run the per-chromosome pileup over already-collected reads and return the
+/// sorted variant set.
+fn run_pileups(
+    target_refs: &[(i32, String, i64)],
+    reads_by_target: &[Vec<AlnRecord>],
+    opts: &VariantOptions,
+) -> Vec<Variant> {
+    let ref_seqs = opts.reference_seqs.as_ref();
+    let mut variants: Vec<Variant> = Vec::new();
+    for (slot, (_id, name, len)) in target_refs.iter().enumerate() {
+        let reads = &reads_by_target[slot];
+        if reads.is_empty() {
+            continue;
+        }
+        let ref_seq = ref_seqs.and_then(|m| m.get(name)).map(|s| s.as_bytes());
+        call_from_pileup(reads, name, *len, opts, ref_seq, &mut variants);
+    }
+    variants.sort_by(|a, b| a.chrom.cmp(&b.chrom).then(a.pos.cmp(&b.pos)));
+    variants
 }
 
 fn base_index(b: u8) -> usize {
@@ -50,103 +217,6 @@ impl OffsetData {
             positions: Default::default(),
         }
     }
-}
-
-fn call_variants_inner(
-    bam_bytes: &[u8],
-    bai: Option<&[u8]>,
-    opts: &VariantOptions,
-) -> io::Result<Value> {
-    let header = bam::read_header(bam_bytes)?;
-    let refs = reference_list(&header);
-
-    let chrom_filter: Option<Vec<&str>> = opts
-        .chromosomes
-        .as_ref()
-        .map(|cs| cs.iter().map(|s| s.as_str()).collect());
-
-    // Targets in header order, with their ref_id.
-    let mut target_refs: Vec<(i32, String, i64)> = Vec::new();
-    for (ref_idx, (name, len)) in refs.iter().enumerate() {
-        if let Some(filter) = &chrom_filter {
-            if !filter.contains(&name.as_str()) {
-                continue;
-            }
-        }
-        target_refs.push((ref_idx as i32, name.clone(), *len as i64));
-    }
-
-    // Single full scan: collect kept reads grouped by ref_id.
-    let target_ids: HashMap<i32, usize> = target_refs
-        .iter()
-        .enumerate()
-        .map(|(slot, (id, _, _))| (*id, slot))
-        .collect();
-    let mut reads_by_target: Vec<Vec<AlnRecord>> = vec![Vec::new(); target_refs.len()];
-    bam::for_each_full(bam_bytes, |aln| {
-        let slot = match target_ids.get(&aln.ref_id) {
-            Some(&s) => s,
-            None => return,
-        };
-        if aln.is_unmapped() || aln.is_duplicate() || aln.is_secondary() {
-            return;
-        }
-        if (aln.mapq as i64) < opts.min_mapping_quality as i64 {
-            return;
-        }
-        reads_by_target[slot].push(aln);
-    })?;
-
-    let ref_seqs = opts.reference_seqs.as_ref();
-
-    let mut variants: Vec<Variant> = Vec::new();
-    for (slot, (_id, name, len)) in target_refs.iter().enumerate() {
-        let reads = &reads_by_target[slot];
-        if reads.is_empty() {
-            continue;
-        }
-        let ref_seq = ref_seqs.and_then(|m| m.get(name)).map(|s| s.as_bytes());
-        call_from_pileup(reads, name, *len, opts, ref_seq, &mut variants);
-    }
-
-    // Sort by (chrom, pos), stable to preserve alt order at a position.
-    variants.sort_by(|a, b| a.chrom.cmp(&b.chrom).then(a.pos.cmp(&b.pos)));
-
-    let reference_used = if ref_seqs.is_some() {
-        "fasta"
-    } else {
-        "inferred_from_reads"
-    };
-
-    let mut warnings: Vec<String> = Vec::new();
-    if ref_seqs.is_none() {
-        warnings.push(
-            "No reference FASTA provided - homozygous variants undetectable (reference base inferred from reads)".to_string(),
-        );
-    }
-    if bai.is_none() {
-        warnings.push("No BAI index - full file scan performed".to_string());
-    }
-    warnings.push("No GIAB validation has been performed on this caller".to_string());
-
-    let chromosomes_processed: Vec<String> =
-        target_refs.iter().map(|(_, n, _)| n.clone()).collect();
-
-    Ok(json!({
-        "variants": variants,
-        "total_variants": variants.len(),
-        "filters": {
-            "min_depth": opts.min_depth,
-            "min_base_quality": opts.min_base_quality,
-            "min_mapping_quality": opts.min_mapping_quality,
-            "min_variant_reads": opts.min_variant_reads,
-            "min_allele_freq": opts.min_allele_freq,
-            "min_strand_bias": opts.min_strand_bias,
-        },
-        "chromosomes_processed": chromosomes_processed,
-        "reference_used": reference_used,
-        "warnings": warnings,
-    }))
 }
 
 fn call_from_pileup(

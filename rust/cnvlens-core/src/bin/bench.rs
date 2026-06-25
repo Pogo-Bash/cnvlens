@@ -2,6 +2,7 @@
 //! bundled NA12878 sample. Not built for wasm.
 //!
 //! Usage: cargo run --release --bin bench -- <bam> [bai]
+#![allow(deprecated)] // intentionally benchmarks the legacy JSON entry points
 
 use std::time::Instant;
 

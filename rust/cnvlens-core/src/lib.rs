@@ -7,6 +7,7 @@
 pub mod bam;
 pub mod cnv;
 pub mod coverage;
+pub mod error;
 pub mod model;
 pub mod stats;
 pub mod variants;
@@ -49,6 +50,7 @@ impl AlnRecord {
 // ── wasm-bindgen shim: JSON-in / JSON-out, gated to the wasm32 target ──
 
 #[cfg(target_arch = "wasm32")]
+#[allow(deprecated)] // the JS shim intentionally calls the legacy JSON entry points
 mod wasm {
     use wasm_bindgen::prelude::*;
 

@@ -11,6 +11,7 @@
           <router-link to="/cnv-analysis" class="tab-item">cnv analysis</router-link>
           <router-link to="/visualization" class="tab-item">visualization</router-link>
           <router-link to="/docs" class="tab-item">docs</router-link>
+          <router-link to="/splice" class="tab-item">spliceql</router-link>
         </div>
       </div>
     </nav>
