@@ -11,6 +11,7 @@ pub mod error;
 pub mod model;
 pub mod stats;
 pub mod variants;
+pub mod vcf;
 
 use noodles::sam::Header;
 

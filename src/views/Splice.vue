@@ -53,6 +53,63 @@ spliceql    = "0.1"</pre>
       </div>
     </section>
 
+    <!-- .spq files -->
+    <section class="space-y-3">
+      <h2 class="text-xl font-bold text-text">.spq files</h2>
+      <p class="text-sm text-subtext0">
+        A <code>.spq</code> file is a SpliceQL query plus metadata directives and
+        <code>$variables</code>. <code>splice new &lt;name&gt;</code> scaffolds one:
+      </p>
+      <div class="card-static">
+        <pre class="text-xs text-subtext1 leading-relaxed overflow-x-auto">{{ spqAnatomy }}</pre>
+      </div>
+      <div class="card-static">
+        <pre class="text-xs text-subtext1">chmod +x query.spq
+./query.spq --bam sample.bam --output results.vcf</pre>
+      </div>
+    </section>
+
+    <!-- Compiling -->
+    <section class="space-y-3">
+      <h2 class="text-xl font-bold text-text">compiling to a binary</h2>
+      <p class="text-sm text-subtext0">
+        <code>splice build</code> embeds the compiled bytecode + runtime into a
+        standalone binary — no <code>splice</code> needed to run it.
+      </p>
+      <div class="card-static">
+        <pre class="text-xs text-subtext1">splice build query.spq -o variant-caller --release
+./variant-caller --bam sample.bam --output results.vcf
+
+splice build query.spq --wasm -o variant-caller
+# produces variant-caller.wasm</pre>
+      </div>
+    </section>
+
+    <!-- Editor support -->
+    <section class="space-y-3">
+      <h2 class="text-xl font-bold text-text">editor support</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div class="card-static">
+          <p class="text-xs font-bold text-mauve uppercase tracking-wider mb-1">GitHub</p>
+          <p class="text-sm text-subtext0">Automatic via the Linguist PR (see
+            <code>crates/spliceql-grammar/linguist/LINGUIST_PR.md</code>).</p>
+        </div>
+        <div class="card-static">
+          <p class="text-xs font-bold text-mauve uppercase tracking-wider mb-1">Vim / Neovim / Helix</p>
+          <p class="text-sm text-subtext0">Zero config — the <code>-- vim: set ft=sql:</code> modeline.</p>
+        </div>
+        <div class="card-static">
+          <p class="text-xs font-bold text-mauve uppercase tracking-wider mb-1">VS Code</p>
+          <p class="text-sm text-subtext0">Install the extension in <code>crates/spliceql-grammar/vscode/</code>.</p>
+        </div>
+        <div class="card-static">
+          <p class="text-xs font-bold text-mauve uppercase tracking-wider mb-1">Other editors</p>
+          <p class="text-sm text-subtext0">TextMate grammar at
+            <code>crates/spliceql-grammar/grammars/spliceql.tmLanguage.json</code>.</p>
+        </div>
+      </div>
+    </section>
+
     <!-- WASM live demo -->
     <section class="space-y-3">
       <h2 class="text-xl font-bold text-text">run in the browser (WASM)</h2>
@@ -67,6 +124,24 @@ spliceql    = "0.1"</pre>
           spellcheck="false"
           class="w-full font-mono text-sm bg-crust text-text rounded-lg p-3 border border-surface1 focus:border-mauve outline-none"
         />
+        <div class="flex flex-wrap items-end gap-3">
+          <label class="text-xs text-subtext0">
+            $bam
+            <input
+              v-model="demoVars.bam"
+              class="block mt-1 font-mono text-sm bg-crust text-text rounded px-2 py-1 border border-surface1 focus:border-mauve outline-none"
+            />
+          </label>
+          <label class="text-xs text-subtext0">
+            $min_af
+            <input
+              v-model="demoVars.min_af"
+              type="number"
+              step="0.01"
+              class="block mt-1 w-28 font-mono text-sm bg-crust text-text rounded px-2 py-1 border border-surface1 focus:border-mauve outline-none"
+            />
+          </label>
+        </div>
         <div class="flex items-center gap-3">
           <button
             @click="runQuery"
@@ -112,7 +187,8 @@ const phases = [
   { id: 2, label: 'Phase 2 — Parser', done: true },
   { id: 3, label: 'Phase 3 — Compiler / VM', done: true },
   { id: 4, label: 'Phase 4 — Execution', done: true },
-  { id: 5, label: 'Phase 5 — npm / WASM', done: true },
+  { id: 5, label: 'Phase 5 — .spq + Build', done: true },
+  { id: 6, label: 'Phase 6 — Advanced', done: false },
 ]
 
 const installerPreview = ` CodonSplice Installer   WELCOME  DETECT  METHOD  INSTALL  VERIFY
@@ -133,12 +209,28 @@ const architecture = `  SpliceQL (language)            CodonSplice (engine)
               call_variants_region     analyze_coverage_region   for_each_region_full
                           └──────────── BAI seeking (noodles csi) ────────────┘`
 
+const spqAnatomy = `#!/usr/bin/env splice          ← shebang (chmod +x to run directly)
+-- vim: set ft=sql:            ← editor highlighting
+-- @name: egfr-variant-caller  ← metadata
+-- @input: bam required "Input BAM file"
+-- @input: min_af optional float 0.05 "Minimum allele frequency"
+-- @output: vcf "Variant calls"
+
+FROM bam $bam                  ← $variables, bound from CLI args
+WHERE chr = "7" AND depth > 30
+CALL variants
+WITH min_af = $min_af
+INTO vcf $output`
+
 const query = ref(
-  `FROM bam "NA12878_EGFR.bam"
+  `FROM bam $bam
 WHERE chr = "7" AND pos >= 55086000 AND pos <= 55280000
 CALL variants
-WITH min_allele_freq = 0.05`,
+WITH min_af = $min_af`,
 )
+
+// Variables surfaced for the demo (editable before running).
+const demoVars = ref({ bam: 'NA12878_EGFR.bam', min_af: 0.05 })
 
 const loading = ref(false)
 const error = ref('')
@@ -180,7 +272,8 @@ async function runQuery() {
   try {
     const engine = await loadEngine()
     const files = await fetchSampleFiles()
-    const result = await engine.execute({ query: query.value, files })
+    const vars = { bam: demoVars.value.bam, min_af: Number(demoVars.value.min_af) }
+    const result = await engine.execute({ query: query.value, files, vars })
     rows.value = Array.isArray(result) ? result : [result]
   } catch (e) {
     error.value = e.message || String(e)

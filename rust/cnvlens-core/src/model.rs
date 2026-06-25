@@ -133,4 +133,11 @@ pub struct Variant {
     pub alt_count: i64,
     pub allele_freq: f64,
     pub strand_bias: f64,
+    /// VCF FILTER column (e.g. "PASS"). `None` for pileup-called variants;
+    /// skipped in JSON when absent so the existing output shape is unchanged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filter: Option<String>,
+    /// VCF ID column. `None` for pileup-called variants.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
 }

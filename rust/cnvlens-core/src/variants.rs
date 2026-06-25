@@ -130,7 +130,7 @@ pub fn collect_variants(
         }
     })?;
 
-    Ok(run_pileups(&target_refs, &reads_by_target, opts))
+    Ok(run_pileups(&target_refs, &reads_by_target, opts, None))
 }
 
 /// Region-restricted SNV calling via BAI seeking. Resolves `region.chrom` to a
@@ -164,27 +164,113 @@ pub fn call_variants_region(
 
     let target_refs = vec![(ref_idx, name, len)];
     let reads_by_target = vec![reads];
-    Ok(run_pileups(&target_refs, &reads_by_target, opts))
+    Ok(run_pileups(&target_refs, &reads_by_target, opts, None))
+}
+
+/// Streaming SNV calling with an optional early-exit `limit`. When `limit` is
+/// set, the per-window pileup stops as soon as that many variants are produced
+/// (so `LIMIT 100` never piles up the whole chromosome). `region` + `bai`
+/// trigger BAI-seeked access; otherwise a full scan. Errors surface as a single
+/// `Err` item.
+pub fn stream_variants(
+    bam_bytes: &[u8],
+    bai: Option<&[u8]>,
+    opts: &VariantOptions,
+    region: Option<&Region>,
+    limit: Option<usize>,
+) -> Box<dyn Iterator<Item = Result<Variant, CoreError>>> {
+    let gathered = gather_variants(bam_bytes, bai, opts, region, limit);
+    match gathered {
+        Ok(vars) => Box::new(vars.into_iter().map(Ok)),
+        Err(e) => Box::new(std::iter::once(Err(e))),
+    }
+}
+
+/// Core variant gathering shared by the collect/region/stream entry points.
+fn gather_variants(
+    bam_bytes: &[u8],
+    bai: Option<&[u8]>,
+    opts: &VariantOptions,
+    region: Option<&Region>,
+    limit: Option<usize>,
+) -> Result<Vec<Variant>, CoreError> {
+    let header = bam::read_header(bam_bytes)?;
+    let refs = reference_list(&header);
+
+    let (target_refs, reads_by_target) = match (region, bai) {
+        // Region + index: seek to the one chromosome's blocks.
+        (Some(r), Some(bai_bytes)) => {
+            let (ref_idx, name, len) = refs
+                .iter()
+                .enumerate()
+                .find(|(_, (n, _))| n == &r.chrom)
+                .map(|(i, (n, l))| (i as i32, n.clone(), *l as i64))
+                .ok_or_else(|| {
+                    CoreError::InvalidRegion(format!("chromosome {:?} not in BAM header", r.chrom))
+                })?;
+            let mut reads = Vec::new();
+            bam::for_each_region_full(bam_bytes, bai_bytes, r, |aln| {
+                if aln.ref_id == ref_idx && keep_read(&aln, opts) {
+                    reads.push(aln);
+                }
+            })?;
+            (vec![(ref_idx, name, len)], vec![reads])
+        }
+        // Otherwise a full scan, honoring opts.chromosomes (and region.chrom if
+        // present but no index).
+        _ => {
+            let chrom_filter: Option<Vec<String>> = region
+                .map(|r| vec![r.chrom.clone()])
+                .or_else(|| opts.chromosomes.clone());
+            let target_refs = build_targets(&refs, chrom_filter.as_deref());
+            let target_ids: HashMap<i32, usize> = target_refs
+                .iter()
+                .enumerate()
+                .map(|(slot, (id, _, _))| (*id, slot))
+                .collect();
+            let mut reads_by_target: Vec<Vec<AlnRecord>> = vec![Vec::new(); target_refs.len()];
+            bam::for_each_full(bam_bytes, |aln| {
+                if let Some(&slot) = target_ids.get(&aln.ref_id) {
+                    if keep_read(&aln, opts) {
+                        reads_by_target[slot].push(aln);
+                    }
+                }
+            })?;
+            (target_refs, reads_by_target)
+        }
+    };
+
+    Ok(run_pileups(&target_refs, &reads_by_target, opts, limit))
 }
 
 /// Run the per-chromosome pileup over already-collected reads and return the
-/// sorted variant set.
+/// sorted variant set. `limit` caps total output, stopping at window/chromosome
+/// granularity once reached.
 fn run_pileups(
     target_refs: &[(i32, String, i64)],
     reads_by_target: &[Vec<AlnRecord>],
     opts: &VariantOptions,
+    limit: Option<usize>,
 ) -> Vec<Variant> {
     let ref_seqs = opts.reference_seqs.as_ref();
     let mut variants: Vec<Variant> = Vec::new();
     for (slot, (_id, name, len)) in target_refs.iter().enumerate() {
+        if let Some(l) = limit {
+            if variants.len() >= l {
+                break;
+            }
+        }
         let reads = &reads_by_target[slot];
         if reads.is_empty() {
             continue;
         }
         let ref_seq = ref_seqs.and_then(|m| m.get(name)).map(|s| s.as_bytes());
-        call_from_pileup(reads, name, *len, opts, ref_seq, &mut variants);
+        call_from_pileup(reads, name, *len, opts, ref_seq, &mut variants, limit);
     }
     variants.sort_by(|a, b| a.chrom.cmp(&b.chrom).then(a.pos.cmp(&b.pos)));
+    if let Some(l) = limit {
+        variants.truncate(l);
+    }
     variants
 }
 
@@ -226,6 +312,7 @@ fn call_from_pileup(
     opts: &VariantOptions,
     ref_seq: Option<&[u8]>,
     out: &mut Vec<Variant>,
+    limit: Option<usize>,
 ) {
     // Reads with sequence.
     let quality_reads: Vec<&AlnRecord> = reads.iter().filter(|r| !r.seq.is_empty()).collect();
@@ -251,6 +338,13 @@ fn call_from_pileup(
     window_indices.sort_unstable();
 
     for w_idx in window_indices {
+        // Early exit: once `limit` variants are produced, stop piling up further
+        // windows entirely (the streaming short-circuit for LIMIT).
+        if let Some(l) = limit {
+            if out.len() >= l {
+                return;
+            }
+        }
         let window_start = w_idx * WINDOW_SIZE;
         let window_end = (window_start + WINDOW_SIZE).min(chrom_len);
         let ws = (window_end - window_start) as usize;
@@ -422,6 +516,8 @@ fn call_from_pileup(
                     alt_count,
                     allele_freq,
                     strand_bias,
+                    filter: None,
+                    id: None,
                 });
             }
         }
