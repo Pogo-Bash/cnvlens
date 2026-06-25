@@ -10,21 +10,6 @@
       </p>
     </section>
 
-    <!-- Status badges -->
-    <section class="card-static">
-      <h2 class="text-sm font-bold text-subtext1 uppercase tracking-wider mb-3">build status</h2>
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-        <div v-for="p in phases" :key="p.id"
-          class="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface0">
-          <span class="inline-block w-2 h-2 rounded-full" :class="p.done ? 'bg-green' : 'bg-overlay0'" />
-          <span class="text-sm text-text font-medium">{{ p.label }}</span>
-          <span class="ml-auto text-xs" :class="p.done ? 'text-green' : 'text-subtext0'">
-            {{ p.done ? '✓ complete' : 'pending' }}
-          </span>
-        </div>
-      </div>
-    </section>
-
     <!-- Install (comprehensive, with platform tree + OS detection) -->
     <InstallSection />
 
@@ -157,15 +142,6 @@ splice build query.spq --wasm -o variant-caller
 <script setup>
 import { ref, computed } from 'vue'
 import InstallSection from '../components/splice/InstallSection.vue'
-
-const phases = [
-  { id: 1, label: 'Phase 1 — Lexer', done: true },
-  { id: 2, label: 'Phase 2 — Parser', done: true },
-  { id: 3, label: 'Phase 3 — Compiler / VM', done: true },
-  { id: 4, label: 'Phase 4 — Execution', done: true },
-  { id: 5, label: 'Phase 5 — .spq + Build', done: true },
-  { id: 6, label: 'Phase 6 — Advanced', done: false },
-]
 
 const architecture = `  SpliceQL (language)            CodonSplice (engine)
   ───────────────────            ────────────────────

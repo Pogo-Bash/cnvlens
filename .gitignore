@@ -56,3 +56,4 @@ public/wasm/*.wasm
 
 *.fq
 
+dist-splice/

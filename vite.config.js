@@ -4,7 +4,8 @@ import vue from '@vitejs/plugin-vue'
 export default defineConfig({
   // App is served from /cnvlens/ in production (nginx Docker image).
   // Set this here so Vite emits asset URLs with the right prefix.
-  base: '/cnvlens/',
+  // VITE_BASE overrides it for the standalone /splice/ build (host nginx static).
+  base: process.env.VITE_BASE || '/cnvlens/',
 
   plugins: [
     vue(),
