@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "Rust/WASM BGZF/BAM parser + CNV/SNV pipeline for CNVLens"
 license = "MIT"
+repository = "https://github.com/Pogo-Bash/cnvlens"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
