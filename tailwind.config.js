@@ -22,6 +22,7 @@ export default {
         blue: "#89b4fa",
         sapphire: "#74c7ec",
         green: "#a6e3a1",
+        yellow: "#f9e2af",
         peach: "#fab387",
         red: "#f38ba8",
         flamingo: "#f2cdcd",

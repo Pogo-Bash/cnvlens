@@ -25,33 +25,8 @@
       </div>
     </section>
 
-    <!-- Install -->
-    <section class="space-y-3">
-      <h2 class="text-xl font-bold text-text">install</h2>
-      <div class="card-static border-l-4 border-peach">
-        <p class="text-sm text-text font-semibold mb-1">New: interactive installer</p>
-        <p class="text-sm text-subtext0">
-          Run <code>splice install</code> for a guided TUI that detects your environment
-          (rustc, cargo, npm, wasm-pack) and walks you through CLI, Rust-library, or npm setup.
-        </p>
-        <pre class="mt-3 text-xs bg-crust rounded-lg p-3 text-subtext1 overflow-x-auto">{{ installerPreview }}</pre>
-      </div>
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div class="card-static">
-          <p class="text-xs font-bold text-mauve uppercase tracking-wider mb-1">CLI</p>
-          <pre class="text-xs text-subtext1">cargo install codonsplice</pre>
-        </div>
-        <div class="card-static">
-          <p class="text-xs font-bold text-mauve uppercase tracking-wider mb-1">Rust</p>
-          <pre class="text-xs text-subtext1">codonsplice = "0.1"
-spliceql    = "0.1"</pre>
-        </div>
-        <div class="card-static">
-          <p class="text-xs font-bold text-mauve uppercase tracking-wider mb-1">npm</p>
-          <pre class="text-xs text-subtext1">npm i @codonsplice/wasm</pre>
-        </div>
-      </div>
-    </section>
+    <!-- Install (comprehensive, with platform tree + OS detection) -->
+    <InstallSection />
 
     <!-- .spq files -->
     <section class="space-y-3">
@@ -181,6 +156,7 @@ splice build query.spq --wasm -o variant-caller
 
 <script setup>
 import { ref, computed } from 'vue'
+import InstallSection from '../components/splice/InstallSection.vue'
 
 const phases = [
   { id: 1, label: 'Phase 1 — Lexer', done: true },
@@ -190,12 +166,6 @@ const phases = [
   { id: 5, label: 'Phase 5 — .spq + Build', done: true },
   { id: 6, label: 'Phase 6 — Advanced', done: false },
 ]
-
-const installerPreview = ` CodonSplice Installer   WELCOME  DETECT  METHOD  INSTALL  VERIFY
- ✓ rustc        rustc 1.78.0 (stable)
- ✓ cargo        cargo 1.78.0
- ✓ npm          10.2.4
- → wasm-pack    not found (cargo install wasm-pack)`
 
 const architecture = `  SpliceQL (language)            CodonSplice (engine)
   ───────────────────            ────────────────────
