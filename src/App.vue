@@ -10,6 +10,7 @@
           <router-link to="/variant-calling" class="tab-item">variant calling</router-link>
           <router-link to="/cnv-analysis" class="tab-item">cnv analysis</router-link>
           <router-link to="/visualization" class="tab-item">visualization</router-link>
+          <router-link to="/docs" class="tab-item">docs</router-link>
         </div>
       </div>
     </nav>
