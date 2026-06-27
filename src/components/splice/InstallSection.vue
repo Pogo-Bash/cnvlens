@@ -195,8 +195,10 @@
         <div :id="ids.npm" :data-id="ids.npm" class="scroll-mt-24 space-y-2">
           <h3 class="text-lg font-bold text-text">npm</h3>
           <CodeBlock lang="bash" :code="npmCode" />
-          <p class="text-xs text-subtext0"><code>@codonsplice/cli</code> auto-detects your OS and
-            downloads the correct prebuilt binary. No Rust toolchain required.</p>
+          <p class="text-sm text-subtext0"><code>@codonsplice/cli</code> detects your OS and CPU at
+            install time and downloads the matching prebuilt binary from the
+            <code>@codonsplice/cli-{platform}</code> sub-package. No Rust toolchain or manual PATH
+            configuration required.</p>
         </div>
 
         <!-- Verify -->
@@ -250,25 +252,35 @@ const platformLinks = [
 // ── per-platform code ────────────────────────────────────────────────────
 const linuxInstaller = `curl -fsSL ${REL}/install.sh | sh`
 const mac = {
-  arm: `# Homebrew (recommended)
-brew install codonsplice
+  arm: `# Guided installer (recommended) — downloads the Apple Silicon
+# binary, installs to ~/.local/bin, no sudo
+curl -fsSL ${REL}/install.sh | sh
+
+# Or via npm (pulls @codonsplice/cli-darwin-arm64)
+npm install -g @codonsplice/cli
 
 # Manual binary
 curl -fsSL ${REL}/splice-macos-aarch64.tar.gz | tar xz
 sudo mv splice /usr/local/bin/
 splice --version
 
-# Via cargo (requires Rust toolchain)
+# Build from source — fallback only; run as your normal
+# user, NOT sudo/root (avoids cargo/target ownership issues)
 cargo install codonsplice`,
-  x86: `# Homebrew (recommended)
-brew install codonsplice
+  x86: `# Guided installer (recommended) — downloads the Intel
+# binary, installs to ~/.local/bin, no sudo
+curl -fsSL ${REL}/install.sh | sh
+
+# Or via npm (pulls @codonsplice/cli-darwin-x64)
+npm install -g @codonsplice/cli
 
 # Manual binary
 curl -fsSL ${REL}/splice-macos-x86_64.tar.gz | tar xz
 sudo mv splice /usr/local/bin/
 splice --version
 
-# Via cargo
+# Build from source — fallback only; run as your normal
+# user, NOT sudo/root (avoids cargo/target ownership issues)
 cargo install codonsplice`,
 }
 const linux = {
@@ -345,7 +357,7 @@ $v = & $dest --version 2>&1
 Write-Host "Installed: $v"
 Write-Host "Restart your terminal for PATH to update."`,
 }
-const npmCode = `# Global CLI (no Rust toolchain needed)
+const npmCode = `# Global CLI (auto-downloads the binary for your platform)
 npm install -g @codonsplice/cli
 
 # WASM package
@@ -363,9 +375,10 @@ const verifyCompile = `splice compile 'FROM bam "sample.bam" WHERE depth > 30 CA
 const detected = ref(null)
 const recommend = computed(() => {
   const os = detected.value?.os
-  if (os === 'macOS') return { lang: 'bash', cmd: 'brew install codonsplice', tealCallout: false }
   if (os === 'Windows') return { lang: 'powershell', cmd: 'winget install Pogo-Bash.CodonSplice', tealCallout: false }
-  // Linux + fallback default
+  // macOS (Apple Silicon + Intel), Linux, and fallback default all use the
+  // guided installer — it detects OS/arch and downloads the matching prebuilt
+  // binary (no Homebrew formula; no sudo).
   return { lang: 'sh', cmd: linuxInstaller, tealCallout: true }
 })
 
