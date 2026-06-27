@@ -162,13 +162,18 @@
             </Collapsible>
           </div>
           <div :id="ids.winPs" :data-id="ids.winPs" class="scroll-mt-24 space-y-2">
-            <h4 class="text-sm font-bold text-mauve">PowerShell script</h4>
-            <p class="text-sm text-subtext0">For automated installs, CI, or if winget is unavailable. Run in PowerShell:</p>
-            <CodeBlock lang="powershell" tint :code="win.psScript" />
-            <p class="text-sm text-subtext0">Or the one-liner:</p>
+            <h4 class="text-sm font-bold text-mauve">PowerShell (one-liner)</h4>
+            <p class="text-sm text-subtext0">The Windows equivalent of the curl installer. Paste into
+              PowerShell — it downloads the latest <code>splice.exe</code> and adds it to PATH, per-user,
+              no admin:</p>
             <CodeBlock lang="powershell" tint :code="win.psOneLiner" />
-            <p class="text-xs text-subtext0">This downloads and runs the script directly. Review first if you prefer:
+            <p class="text-xs text-subtext0">Prefer to read it first?
               <a class="text-blue hover:underline" :href="win.psUrl">install.ps1</a></p>
+            <Collapsible title="What the script does (run it manually)">
+              <p class="text-sm text-subtext0 mb-2">Same steps as the one-liner, if you'd rather paste the
+                script yourself:</p>
+              <CodeBlock lang="powershell" tint :code="win.psScript" />
+            </Collapsible>
             <Collapsible title="Execution policy error?">
               <CodeBlock lang="powershell" tint :code="'Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser'" />
               <p class="text-sm text-subtext0 mt-1">Then re-run the installer.</p>
@@ -205,7 +210,7 @@
         <div :id="ids.verify" :data-id="ids.verify" class="scroll-mt-24 space-y-2">
           <h3 class="text-lg font-bold text-text">Verify installation</h3>
           <CodeBlock lang="bash" prompt :code="'splice --version'" />
-          <OutputBlock :code="'splice 0.1.0'" />
+          <OutputBlock :code="'splice 0.2.6'" />
           <CodeBlock lang="bash" prompt :code="'splice'" />
           <CodeBlock lang="bash" prompt :code="verifyCheck" />
           <OutputBlock :code="'(no output = check passed)'" />
