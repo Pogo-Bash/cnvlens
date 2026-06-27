@@ -41,22 +41,36 @@
         <CodeBlock lang="bash" prompt :code="installCargo" />
       </Collapsible>
 
-      <Collapsible title="macOS / Linux — prebuilt binary">
+      <Collapsible title="macOS — Apple Silicon (M1/M2/M3)">
         <p class="text-sm text-subtext0">
-          One flow for both Unix platforms — set <code>REL</code>, then grab the tarball that matches
-          your OS + CPU and drop the binary on your PATH.
+          Downloads the native <code>arm64</code> binary. (The Quick install and npm methods above
+          resolve to this same Apple-Silicon build automatically.)
         </p>
-        <CodeBlock lang="bash" prompt :code="installUnix" />
+        <CodeBlock lang="bash" prompt :code="installMacArm" />
       </Collapsible>
 
-      <Collapsible title="Windows — prebuilt binary">
-        <ol class="text-sm text-subtext0 list-decimal ml-5 space-y-1">
-          <li>Download <code>splice-windows-x86_64.exe</code> from the latest release.</li>
-          <li>Rename it to <code>splice.exe</code>.</li>
-          <li>Move it to a folder on your <code>PATH</code> (e.g. <code>%LOCALAPPDATA%\Programs\CodonSplice</code>).</li>
-          <li>Open a new terminal and run the verify step below.</li>
-        </ol>
-        <p class="text-xs text-overlay1">winget packaging isn't set up yet.</p>
+      <Collapsible title="macOS — Intel">
+        <p class="text-sm text-subtext0">For Intel Macs (<code>x86_64</code>).</p>
+        <CodeBlock lang="bash" prompt :code="installMacIntel" />
+      </Collapsible>
+
+      <Collapsible title="Linux — x86_64">
+        <CodeBlock lang="bash" prompt :code="installLinuxX86" />
+      </Collapsible>
+
+      <Collapsible title="Linux — aarch64 (ARM)">
+        <p class="text-sm text-subtext0">AWS Graviton, Raspberry Pi 4/5, and other ARM64 Linux.</p>
+        <CodeBlock lang="bash" prompt :code="installLinuxArm" />
+      </Collapsible>
+
+      <Collapsible title="Windows — PowerShell one-liner">
+        <p class="text-sm text-subtext0">
+          The Windows equivalent of the curl installer. Paste into PowerShell — it downloads the
+          latest <code>splice.exe</code>, installs it per-user under <code>%LOCALAPPDATA%</code>, and
+          adds it to PATH. No admin required.
+        </p>
+        <CodeBlock lang="powershell" :code="installWinPs" />
+        <p class="text-xs text-overlay1">winget packaging is planned but not submitted yet.</p>
       </Collapsible>
 
       <p class="text-xs uppercase tracking-wider text-mauve font-bold pt-1">Building from source</p>
@@ -360,17 +374,29 @@ const installNpm = `npm install -g @codonsplice/cli`
 
 const installCargo = `cargo install --git https://github.com/Pogo-Bash/codonsplice splice-cli`
 
-const installUnix = `REL=https://github.com/Pogo-Bash/codonsplice/releases/latest/download
+const REL_BASE = 'https://github.com/Pogo-Bash/codonsplice/releases/latest/download'
 
-# choose the tarball for your platform:
-#   Linux  x86_64       splice-linux-x86_64.tar.gz
-#   Linux  arm64        splice-linux-aarch64.tar.gz
-#   macOS  Intel        splice-macos-x86_64.tar.gz
-#   macOS  Apple silicon splice-macos-aarch64.tar.gz
+const installMacArm = `REL=${REL_BASE}
+curl -fsSL $REL/splice-macos-aarch64.tar.gz | tar xz
+sudo mv splice /usr/local/bin/`
+
+const installMacIntel = `REL=${REL_BASE}
+curl -fsSL $REL/splice-macos-x86_64.tar.gz | tar xz
+sudo mv splice /usr/local/bin/`
+
+const installLinuxX86 = `REL=${REL_BASE}
 curl -fsSL $REL/splice-linux-x86_64.tar.gz | tar xz
 sudo mv splice /usr/local/bin/`
 
-const installSource = `git clone --recursive https://github.com/Pogo-Bash/codonsplice
+const installLinuxArm = `REL=${REL_BASE}
+curl -fsSL $REL/splice-linux-aarch64.tar.gz | tar xz
+sudo mv splice /usr/local/bin/`
+
+const installWinPs = `irm ${REL_BASE}/install.ps1 | iex`
+
+const installSource = `# Fallback only — run as your NORMAL user, never sudo/root
+# (a root-owned ~/.cargo or target/ breaks later builds).
+git clone --recursive https://github.com/Pogo-Bash/codonsplice
 cd codonsplice
 # if you forgot --recursive:
 git submodule update --init --recursive
