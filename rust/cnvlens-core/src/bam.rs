@@ -36,6 +36,13 @@ fn decode_full(record: &bam::Record) -> io::Result<AlnRecord> {
 
     let mapq = record.mapping_quality().map(|m| m.get()).unwrap_or(0);
 
+    // Mate reference id (BAM `next_ref_id`); noodles is 0-based, -1 / None = unset.
+    let mate_ref_id = match record.mate_reference_sequence_id() {
+        Some(Ok(id)) => id as i32,
+        Some(Err(e)) => return Err(e),
+        None => -1,
+    };
+
     let sequence = record.sequence();
     let seq: Vec<u8> = sequence.iter().collect();
 
@@ -47,6 +54,7 @@ fn decode_full(record: &bam::Record) -> io::Result<AlnRecord> {
         pos,
         mapq,
         flag,
+        mate_ref_id,
         seq,
         qual,
     })

@@ -25,6 +25,10 @@ pub struct AlnRecord {
     pub pos: i64,
     pub mapq: u8,
     pub flag: u16,
+    /// Mate's reference-sequence id (the BAM `next_ref_id` core field), 0-based;
+    /// `-1` when the mate is unmapped/unset. Needed for `flagstat`'s
+    /// "mate mapped to a different chr" lines, which compare it to `ref_id`.
+    pub mate_ref_id: i32,
     pub seq: Vec<u8>,
     pub qual: Vec<u8>,
 }
