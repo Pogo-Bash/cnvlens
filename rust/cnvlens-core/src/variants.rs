@@ -162,6 +162,38 @@ pub fn build_indel_alleles(
     }
 }
 
+/// Left-align an anchor-prefixed indel. `anchor0` is the 0-based reference index
+/// of the anchor base; `refa`/`alta` are the REF/ALT byte strings (both start
+/// with the anchor base; one is longer). Returns the leftmost-equivalent
+/// (anchor0, REF, ALT). No-op for already-left-aligned indels.
+///
+/// In repeats/homopolymers an indel's position is ambiguous; the universal
+/// convention (matching `bcftools norm -f ref`) is to shift it as far LEFT as
+/// possible while it describes the identical edit.
+fn left_align_indel(
+    ref_seq: &[u8],
+    mut anchor0: usize,
+    mut refa: Vec<u8>,
+    mut alta: Vec<u8>,
+) -> (usize, Vec<u8>, Vec<u8>) {
+    // While the indel can slide one base left and still represent the same edit:
+    // the last base of REF equals the last base of ALT (so rotating left by
+    // prepending ref_seq[anchor0-1] and dropping the last base is identity).
+    while anchor0 > 0
+        && refa.last().is_some()
+        && alta.last().is_some()
+        && refa.last() == alta.last()
+    {
+        let prev = ref_seq[anchor0 - 1].to_ascii_uppercase();
+        refa.insert(0, prev);
+        refa.pop();
+        alta.insert(0, prev);
+        alta.pop();
+        anchor0 -= 1;
+    }
+    (anchor0, refa, alta)
+}
+
 /// SNV calling, JSON-out. Retained for the CNVLens WASM shim and UI, which
 /// consume the rich result object (variants + filters + warnings).
 ///
@@ -750,11 +782,19 @@ fn call_from_pileup(
                         };
                         let qual =
                             stats::binomial_qual_score(alt_count, total_depth, ERROR_RATE);
+                        // Left-align into leftmost-equivalent position (drops the
+                        // external `bcftools norm` dependency).
+                        let (la_anchor0, la_ref, la_alt) = left_align_indel(
+                            rseq,
+                            anchor0,
+                            ref_str.into_bytes(),
+                            alt_str.into_bytes(),
+                        );
                         out.push(Variant {
                             chrom: chrom_name.to_string(),
-                            pos: pos + 1, // VCF 1-based, anchor+1 (matches SNV)
-                            ref_base: ref_str,
-                            alt: alt_str,
+                            pos: la_anchor0 as i64 + 1, // VCF 1-based, anchor+1
+                            ref_base: String::from_utf8_lossy(&la_ref).into_owned(),
+                            alt: String::from_utf8_lossy(&la_alt).into_owned(),
                             qual,
                             kind: kind.to_string(),
                             depth: total_depth,
@@ -793,11 +833,19 @@ fn call_from_pileup(
                         };
                         let qual =
                             stats::binomial_qual_score(alt_count, total_depth, ERROR_RATE);
+                        // Left-align into leftmost-equivalent position (drops the
+                        // external `bcftools norm` dependency).
+                        let (la_anchor0, la_ref, la_alt) = left_align_indel(
+                            rseq,
+                            anchor0,
+                            ref_str.into_bytes(),
+                            alt_str.into_bytes(),
+                        );
                         out.push(Variant {
                             chrom: chrom_name.to_string(),
-                            pos: pos + 1, // VCF 1-based, anchor+1 (matches SNV)
-                            ref_base: ref_str,
-                            alt: alt_str,
+                            pos: la_anchor0 as i64 + 1, // VCF 1-based, anchor+1
+                            ref_base: String::from_utf8_lossy(&la_ref).into_owned(),
+                            alt: String::from_utf8_lossy(&la_alt).into_owned(),
                             qual,
                             kind: kind.to_string(),
                             depth: total_depth,
@@ -939,6 +987,36 @@ mod tests {
     fn alleles_uppercases() {
         let r = b"gattaca";
         assert_eq!(build_indel_alleles(r, 0, &CigarEvent::Ins(b"cc".to_vec())), Some(("G".into(),"GCC".into(),"INS")));
+    }
+
+    #[test]
+    fn left_align_deletion_homopolymer_shifts() {
+        // ref index: 0=T 1=A 2=A 3=A 4=A 5=T ; del 1bp anchored mid-run as ("AA","A") at anchor0=2
+        let r = b"TAAAAT";
+        assert_eq!(left_align_indel(r, 2, b"AA".to_vec(), b"A".to_vec()), (0, b"TA".to_vec(), b"T".to_vec()));
+    }
+    #[test]
+    fn left_align_insertion_homopolymer_shifts() {
+        // insert one A into the AAAA run, anchored mid-run as ("A","AA") at anchor0=3 -> leftmost at T (0)
+        let r = b"TAAAAT";
+        assert_eq!(left_align_indel(r, 3, b"A".to_vec(), b"AA".to_vec()), (0, b"T".to_vec(), b"TA".to_vec()));
+    }
+    #[test]
+    fn left_align_already_aligned_is_noop() {
+        let r = b"GATTACA"; // del ("GA","G") at 0 is already leftmost (G != A)
+        assert_eq!(left_align_indel(r, 0, b"GA".to_vec(), b"G".to_vec()), (0, b"GA".to_vec(), b"G".to_vec()));
+    }
+    #[test]
+    fn left_align_stops_at_reference_start() {
+        // a shiftable indel that would roll past index 0 must stop at 0, not panic
+        let r = b"AAAA";
+        let (p, _, _) = left_align_indel(r, 2, b"AA".to_vec(), b"A".to_vec());
+        assert_eq!(p, 0); // clamped at start
+    }
+    #[test]
+    fn left_align_non_repetitive_is_noop() {
+        let r = b"ACGTACGT"; // del ("CG","C") at 1 -> last 'G' != 'C', no shift
+        assert_eq!(left_align_indel(r, 1, b"CG".to_vec(), b"C".to_vec()), (1, b"CG".to_vec(), b"C".to_vec()));
     }
 
     #[test]
