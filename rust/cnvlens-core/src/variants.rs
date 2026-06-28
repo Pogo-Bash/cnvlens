@@ -66,6 +66,49 @@ pub fn walk_cigar(read_pos: i64, cigar: &[(CigarOp, usize)], seq: &[u8]) -> Vec<
     events
 }
 
+/// Build VCF 4.2 anchor-prefixed REF/ALT alleles from a [`CigarEvent`] and the
+/// chromosome reference sequence. `anchor0` is the 0-based index of the anchor
+/// base (the last reference base consumed before the indel, per `walk_cigar`).
+///
+/// Per design §3 / D5:
+/// - `Ins(ins)`: REF = anchor base `b`; ALT = `b` + `ins`; kind = "INS".
+/// - `Del(n)`: REF = `ref_seq[anchor0..=anchor0+n]` (anchor + n deleted bases);
+///   ALT = `b`; kind = "DEL".
+///
+/// Returns `None` when the required reference bytes are out of bounds.
+pub fn build_indel_alleles(
+    ref_seq: &[u8],
+    anchor0: usize,
+    ev: &CigarEvent,
+) -> Option<(String, String, &'static str)> {
+    if anchor0 >= ref_seq.len() {
+        return None;
+    }
+    let b = ref_seq[anchor0].to_ascii_uppercase();
+    match ev {
+        CigarEvent::Ins(ins) => {
+            let mut alt = Vec::with_capacity(1 + ins.len());
+            alt.push(b);
+            alt.extend(ins.iter().map(|c| c.to_ascii_uppercase()));
+            let ref_str = String::from(b as char);
+            let alt = String::from_utf8(alt).ok()?;
+            Some((ref_str, alt, "INS"))
+        }
+        CigarEvent::Del(n) => {
+            let end = anchor0 + n;
+            if end >= ref_seq.len() {
+                return None;
+            }
+            let ref_str: String = ref_seq[anchor0..=end]
+                .iter()
+                .map(|c| c.to_ascii_uppercase() as char)
+                .collect();
+            let alt = String::from(b as char);
+            Some((ref_str, alt, "DEL"))
+        }
+    }
+}
+
 /// SNV calling, JSON-out. Retained for the CNVLens WASM shim and UI, which
 /// consume the rich result object (variants + filters + warnings).
 ///
@@ -677,6 +720,33 @@ mod tests {
                 (7, CigarEvent::Del(1))
             ]
         );
+    }
+
+    #[test]
+    fn alleles_insertion() {
+        let r = b"ACTGACTG"; // anchor0=0 -> b='A'
+        assert_eq!(build_indel_alleles(r, 0, &CigarEvent::Ins(b"CC".to_vec())), Some(("A".into(),"ACC".into(),"INS")));
+    }
+    #[test]
+    fn alleles_deletion() {
+        let r = b"GATTACA"; // anchor0=0 b='G', del 1 -> REF=r[0..=1]="GA", ALT="G"
+        assert_eq!(build_indel_alleles(r, 0, &CigarEvent::Del(1)), Some(("GA".into(),"G".into(),"DEL")));
+    }
+    #[test]
+    fn alleles_deletion_multibase() {
+        let r = b"GAACT"; // anchor0=0 b='G', del 2 -> REF=r[0..=2]="GAA", ALT="G"
+        assert_eq!(build_indel_alleles(r, 0, &CigarEvent::Del(2)), Some(("GAA".into(),"G".into(),"DEL")));
+    }
+    #[test]
+    fn alleles_out_of_bounds_is_none() {
+        let r = b"AC";
+        assert_eq!(build_indel_alleles(r, 1, &CigarEvent::Del(5)), None); // 1+5 >= len
+        assert_eq!(build_indel_alleles(r, 9, &CigarEvent::Ins(b"X".to_vec())), None); // anchor oob
+    }
+    #[test]
+    fn alleles_uppercases() {
+        let r = b"gattaca";
+        assert_eq!(build_indel_alleles(r, 0, &CigarEvent::Ins(b"cc".to_vec())), Some(("G".into(),"GCC".into(),"INS")));
     }
 
     #[test]
