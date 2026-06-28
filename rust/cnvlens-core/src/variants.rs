@@ -542,6 +542,7 @@ mod tests {
             flag,
             seq: vec![b'A'],
             qual: vec![30],
+            cigar: vec![],
         };
         assert!(keep_read(&base(0x2), &opts), "normal paired read kept");
         assert!(!keep_read(&base(0x800), &opts), "supplementary excluded");
