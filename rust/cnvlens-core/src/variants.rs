@@ -102,7 +102,11 @@ fn build_targets(
 /// Whether a read passes the mapping-quality / flag filters used by the caller.
 #[inline]
 fn keep_read(aln: &AlnRecord, opts: &VariantOptions) -> bool {
-    !(aln.is_unmapped() || aln.is_duplicate() || aln.is_secondary())
+    !(aln.is_unmapped()
+        || aln.is_duplicate()
+        || aln.is_secondary()
+        || aln.is_supplementary()
+        || aln.is_qcfail())
         && (aln.mapq as i64) >= opts.min_mapping_quality as i64
 }
 
@@ -521,5 +525,27 @@ fn call_from_pileup(
                 });
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keep_read_excludes_supplementary_and_qcfail() {
+        let opts = VariantOptions::default();
+        let base = |flag: u16| AlnRecord {
+            ref_id: 0,
+            pos: 100,
+            mapq: 60,
+            flag,
+            seq: vec![b'A'],
+            qual: vec![30],
+        };
+        assert!(keep_read(&base(0x2), &opts), "normal paired read kept");
+        assert!(!keep_read(&base(0x800), &opts), "supplementary excluded");
+        assert!(!keep_read(&base(0x200), &opts), "qcfail excluded");
+        assert!(!keep_read(&base(0x400), &opts), "duplicate still excluded");
     }
 }

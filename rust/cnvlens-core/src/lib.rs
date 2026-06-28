@@ -43,6 +43,14 @@ impl AlnRecord {
         self.flag & 0x400 != 0
     }
     #[inline]
+    pub fn is_supplementary(&self) -> bool {
+        self.flag & 0x800 != 0
+    }
+    #[inline]
+    pub fn is_qcfail(&self) -> bool {
+        self.flag & 0x200 != 0
+    }
+    #[inline]
     pub fn is_reverse(&self) -> bool {
         self.flag & 0x10 != 0
     }
