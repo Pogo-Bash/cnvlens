@@ -183,3 +183,157 @@ fn info_field<'a>(info: &'a str, key: &str) -> Option<&'a str> {
     }
     None
 }
+
+// ── VCF set operations (bcftools isec) ───────────────────────────────────────
+
+/// A VCF set-operation partition, matching the four files `bcftools isec -p`
+/// produces (plus their `union` combination). Records are matched on the exact
+/// `(chrom, pos, ref, alt)` key — no coordinate normalization, no overlap
+/// fuzzing — so this is byte-for-record-set identical to `bcftools isec`.
+///
+/// | mode        | bcftools file | meaning                         |
+/// |-------------|---------------|---------------------------------|
+/// | `PrivateA`  | `0000.vcf`    | records private to A            |
+/// | `PrivateB`  | `0001.vcf`    | records private to B            |
+/// | `Shared`    | `0002.vcf`    | shared records, taken from A    |
+/// | `SharedB`   | `0003.vcf`    | shared records, taken from B    |
+/// | `Union`     | (combination) | A ∪ B (A records + B-privates)  |
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IsecMode {
+    PrivateA,
+    PrivateB,
+    Shared,
+    SharedB,
+    Union,
+}
+
+/// The exact match key for VCF set operations: `(chrom, pos, ref, alt)`.
+/// Mirrors what `bcftools isec` keys on (first ALT allele; the reader already
+/// keeps only the first ALT). Owned so it can live in a `HashSet`.
+pub fn variant_key(v: &Variant) -> (String, i64, String, String) {
+    (v.chrom.clone(), v.pos, v.ref_base.clone(), v.alt.clone())
+}
+
+/// Partition two variant sets by the chosen [`IsecMode`].
+///
+/// This is the single reusable set-operation primitive: the SpliceQL `ISEC`
+/// surface and any future tumor-normal (`PAIRED WITH`) logic both call this.
+/// Output preserves the *source* file's record order (A for `PrivateA` /
+/// `Shared` / `Union`, B for `PrivateB` / `SharedB`), which for sorted VCF input
+/// means position-sorted output identical to `bcftools isec`.
+pub fn isec(a: &[Variant], b: &[Variant], mode: IsecMode) -> Vec<Variant> {
+    use std::collections::HashSet;
+    let a_keys: HashSet<(String, i64, String, String)> = a.iter().map(variant_key).collect();
+    let b_keys: HashSet<(String, i64, String, String)> = b.iter().map(variant_key).collect();
+    match mode {
+        IsecMode::PrivateA => a
+            .iter()
+            .filter(|v| !b_keys.contains(&variant_key(v)))
+            .cloned()
+            .collect(),
+        IsecMode::PrivateB => b
+            .iter()
+            .filter(|v| !a_keys.contains(&variant_key(v)))
+            .cloned()
+            .collect(),
+        IsecMode::Shared => a
+            .iter()
+            .filter(|v| b_keys.contains(&variant_key(v)))
+            .cloned()
+            .collect(),
+        IsecMode::SharedB => b
+            .iter()
+            .filter(|v| a_keys.contains(&variant_key(v)))
+            .cloned()
+            .collect(),
+        IsecMode::Union => {
+            let mut out: Vec<Variant> = a.to_vec();
+            out.extend(
+                b.iter()
+                    .filter(|v| !a_keys.contains(&variant_key(v)))
+                    .cloned(),
+            );
+            out
+        }
+    }
+}
+
+#[cfg(test)]
+mod isec_tests {
+    use super::*;
+
+    fn var(chrom: &str, pos: i64, r: &str, alt: &str) -> Variant {
+        Variant {
+            chrom: chrom.to_string(),
+            pos,
+            ref_base: r.to_string(),
+            alt: alt.to_string(),
+            qual: 0.0,
+            kind: "SNV".to_string(),
+            depth: 0,
+            ref_count: 0,
+            alt_count: 0,
+            allele_freq: 0.0,
+            strand_bias: 0.0,
+            filter: None,
+            id: None,
+        }
+    }
+
+    /// A: pos 1,2,3 on chr7. B: pos 2,3,4. Shared = 2,3. A-private = 1. B-private = 4.
+    fn set_a() -> Vec<Variant> {
+        vec![
+            var("7", 1, "A", "G"),
+            var("7", 2, "C", "T"),
+            var("7", 3, "G", "A"),
+        ]
+    }
+    fn set_b() -> Vec<Variant> {
+        vec![
+            var("7", 2, "C", "T"),
+            var("7", 3, "G", "A"),
+            var("7", 4, "T", "C"),
+        ]
+    }
+
+    fn poss(vs: &[Variant]) -> Vec<i64> {
+        vs.iter().map(|v| v.pos).collect()
+    }
+
+    #[test]
+    fn private_a_is_records_only_in_a() {
+        assert_eq!(poss(&isec(&set_a(), &set_b(), IsecMode::PrivateA)), vec![1]);
+    }
+
+    #[test]
+    fn private_b_is_records_only_in_b() {
+        assert_eq!(poss(&isec(&set_a(), &set_b(), IsecMode::PrivateB)), vec![4]);
+    }
+
+    #[test]
+    fn shared_takes_from_a_in_a_order() {
+        assert_eq!(poss(&isec(&set_a(), &set_b(), IsecMode::Shared)), vec![2, 3]);
+    }
+
+    #[test]
+    fn shared_b_takes_from_b_in_b_order() {
+        assert_eq!(poss(&isec(&set_a(), &set_b(), IsecMode::SharedB)), vec![2, 3]);
+    }
+
+    #[test]
+    fn union_is_a_plus_b_privates() {
+        assert_eq!(
+            poss(&isec(&set_a(), &set_b(), IsecMode::Union)),
+            vec![1, 2, 3, 4]
+        );
+    }
+
+    #[test]
+    fn match_is_exact_on_ref_and_alt() {
+        // Same (chrom,pos) but different ALT must NOT match.
+        let a = vec![var("7", 10, "A", "G")];
+        let b = vec![var("7", 10, "A", "T")];
+        assert!(isec(&a, &b, IsecMode::Shared).is_empty());
+        assert_eq!(poss(&isec(&a, &b, IsecMode::PrivateA)), vec![10]);
+    }
+}
