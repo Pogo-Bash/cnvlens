@@ -9,10 +9,62 @@ use serde_json::{json, Value};
 use crate::error::CoreError;
 use crate::model::{Region, Variant, VariantOptions};
 use crate::stats;
-use crate::{bam, reference_list, AlnRecord};
+use crate::{bam, reference_list, AlnRecord, CigarOp};
 
 const WINDOW_SIZE: i64 = 1_000_000;
 const ERROR_RATE: f64 = 0.01;
+
+/// An indel event surfaced by walking a CIGAR string.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CigarEvent {
+    Ins(Vec<u8>),
+    Del(usize),
+}
+
+/// Pure dual-cursor CIGAR walk. Returns (anchor_0based_ref_pos, event) for each
+/// indel. Match/=/X/N/S/H/P produce no events but advance the cursors per spec.
+pub fn walk_cigar(read_pos: i64, cigar: &[(CigarOp, usize)], seq: &[u8]) -> Vec<(i64, CigarEvent)> {
+    let mut events = Vec::new();
+    let mut ref_cur: i64 = read_pos; // 0-based reference position
+    let mut read_cur: usize = 0; // index into seq
+
+    for &(op, len) in cigar {
+        match op {
+            CigarOp::Match | CigarOp::SeqMatch | CigarOp::SeqMismatch => {
+                ref_cur += len as i64;
+                read_cur += len;
+            }
+            CigarOp::Ins => {
+                // Anchor on the last ref base consumed BEFORE this op (VCF 4.2).
+                let anchor = ref_cur - 1;
+                // Read the inserted bytes BEFORE advancing the read cursor.
+                let payload = seq[read_cur..read_cur + len].to_vec();
+                read_cur += len;
+                if anchor >= read_pos {
+                    events.push((anchor, CigarEvent::Ins(payload)));
+                }
+            }
+            CigarOp::Del => {
+                let anchor = ref_cur - 1;
+                ref_cur += len as i64;
+                if anchor >= read_pos {
+                    events.push((anchor, CigarEvent::Del(len)));
+                }
+            }
+            CigarOp::Skip => {
+                ref_cur += len as i64;
+            }
+            CigarOp::SoftClip => {
+                read_cur += len;
+            }
+            CigarOp::HardClip | CigarOp::Pad => {
+                // Consume neither reference nor read.
+            }
+        }
+    }
+
+    events
+}
 
 /// SNV calling, JSON-out. Retained for the CNVLens WASM shim and UI, which
 /// consume the rich result object (variants + filters + warnings).
@@ -548,5 +600,93 @@ mod tests {
         assert!(!keep_read(&base(0x800), &opts), "supplementary excluded");
         assert!(!keep_read(&base(0x200), &opts), "qcfail excluded");
         assert!(!keep_read(&base(0x400), &opts), "duplicate still excluded");
+    }
+
+    #[test]
+    fn walk_cigar_simple_insertion() {
+        let seq = b"AAAACCGGGG";
+        let cig = vec![(CigarOp::Match, 4), (CigarOp::Ins, 2), (CigarOp::Match, 4)];
+        assert_eq!(
+            walk_cigar(100, &cig, seq),
+            vec![(103, CigarEvent::Ins(b"CC".to_vec()))]
+        ); // 100+4-1
+    }
+
+    #[test]
+    fn walk_cigar_simple_deletion() {
+        let seq = b"AAAAAAAACCCCCCCCC"; // 8M + 9M read bases (D consumes ref only)
+        let cig = vec![(CigarOp::Match, 8), (CigarOp::Del, 3), (CigarOp::Match, 9)];
+        assert_eq!(
+            walk_cigar(200, &cig, seq),
+            vec![(207, CigarEvent::Del(3))]
+        ); // 200+8-1
+    }
+
+    #[test]
+    fn walk_cigar_leading_softclip_then_insertion() {
+        let mut seq = vec![b'N'; 5];
+        seq.extend_from_slice(&[b'A'; 20]);
+        seq.push(b'T');
+        seq.extend_from_slice(&[b'A'; 4]);
+        let cig = vec![
+            (CigarOp::SoftClip, 5),
+            (CigarOp::Match, 20),
+            (CigarOp::Ins, 1),
+            (CigarOp::Match, 4),
+        ];
+        // softclip consumes read only (not ref); ref starts at read_pos; ins anchor = read_pos+20-1
+        assert_eq!(
+            walk_cigar(300, &cig, &seq),
+            vec![(319, CigarEvent::Ins(b"T".to_vec()))]
+        );
+    }
+
+    #[test]
+    fn walk_cigar_skip_and_seqmatch_mismatch_no_indels() {
+        let seq = b"AAAAACCCCC";
+        let cig = vec![
+            (CigarOp::SeqMatch, 5),
+            (CigarOp::Skip, 10),
+            (CigarOp::SeqMismatch, 5),
+        ];
+        assert_eq!(walk_cigar(0, &cig, seq), vec![]); // must not panic / mis-index
+    }
+
+    #[test]
+    fn walk_cigar_drops_leading_indel() {
+        let seq: Vec<u8> = std::iter::repeat(b'A').take(12).collect();
+        let cig = vec![(CigarOp::Ins, 2), (CigarOp::Match, 10)]; // insertion as first op: anchor would be read_pos-1 < read_pos
+        assert_eq!(walk_cigar(50, &cig, &seq), vec![]);
+    }
+
+    #[test]
+    fn walk_cigar_multiple_indels_one_read() {
+        // 4M 1I 4M 1D 6M : ins at 0+4-1=3 ; del at (4+1ins? no—ins doesn't move ref) so after 4M+4M ref=read_pos+8, del anchor=read_pos+8-1
+        let seq = b"AAAATGGGGCCCCCC"; // 4 +1ins +4 +6 = 15 read bases
+        let cig = vec![
+            (CigarOp::Match, 4),
+            (CigarOp::Ins, 1),
+            (CigarOp::Match, 4),
+            (CigarOp::Del, 1),
+            (CigarOp::Match, 6),
+        ];
+        assert_eq!(
+            walk_cigar(0, &cig, seq),
+            vec![
+                (3, CigarEvent::Ins(b"T".to_vec())),
+                (7, CigarEvent::Del(1))
+            ]
+        );
+    }
+
+    #[test]
+    fn walk_cigar_trailing_clip_and_hardclip() {
+        let seq = b"AAAAACCC"; // 5M then 3S (hardclip consumes nothing, not in seq)
+        let cig = vec![
+            (CigarOp::HardClip, 2),
+            (CigarOp::Match, 5),
+            (CigarOp::SoftClip, 3),
+        ];
+        assert_eq!(walk_cigar(10, &cig, seq), vec![]); // no indels, must handle H at start
     }
 }
