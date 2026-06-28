@@ -21,34 +21,74 @@ pub enum CigarEvent {
     Del(usize),
 }
 
-/// Pure dual-cursor CIGAR walk. Returns (anchor_0based_ref_pos, event) for each
-/// indel. Match/=/X/N/S/H/P produce no events but advance the cursors per spec.
-pub fn walk_cigar(read_pos: i64, cigar: &[(CigarOp, usize)], seq: &[u8]) -> Vec<(i64, CigarEvent)> {
-    let mut events = Vec::new();
+/// One span emitted by the full CIGAR walk. Either an aligned run of bases
+/// (`M`/`=`/`X`) that maps consecutive read indices to consecutive reference
+/// positions, or an indel event. This is the single source of cursor truth: the
+/// indel-only [`walk_cigar`] and the pileup both consume the SAME walk, so their
+/// ref/read arithmetic can never diverge.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CigarSpan {
+    /// `len` read bases at indices `read_idx..read_idx+len` align to reference
+    /// positions `ref0..ref0+len` (0-based).
+    Aligned {
+        ref0: i64,
+        read_idx: usize,
+        len: usize,
+    },
+    /// An indel anchored on the last reference base consumed before it.
+    Indel { anchor: i64, event: CigarEvent },
+}
+
+/// Pure dual-cursor CIGAR walk yielding every span (aligned runs + indels) in
+/// CIGAR order. `Match/=/X` become [`CigarSpan::Aligned`]; `I`/`D` become
+/// [`CigarSpan::Indel`]; `N/S/H/P` advance the cursors per spec without emitting.
+pub fn walk_cigar_full(
+    read_pos: i64,
+    cigar: &[(CigarOp, usize)],
+    seq: &[u8],
+) -> Vec<CigarSpan> {
+    let mut spans = Vec::new();
     let mut ref_cur: i64 = read_pos; // 0-based reference position
     let mut read_cur: usize = 0; // index into seq
 
     for &(op, len) in cigar {
         match op {
             CigarOp::Match | CigarOp::SeqMatch | CigarOp::SeqMismatch => {
+                spans.push(CigarSpan::Aligned {
+                    ref0: ref_cur,
+                    read_idx: read_cur,
+                    len,
+                });
                 ref_cur += len as i64;
                 read_cur += len;
             }
             CigarOp::Ins => {
                 // Anchor on the last ref base consumed BEFORE this op (VCF 4.2).
                 let anchor = ref_cur - 1;
+                // Guard: a truncated/malformed read may claim more inserted bytes
+                // than `seq` holds. Skip the op (don't panic) and stop walking,
+                // since the read cursor can no longer be trusted.
+                if read_cur + len > seq.len() {
+                    break;
+                }
                 // Read the inserted bytes BEFORE advancing the read cursor.
                 let payload = seq[read_cur..read_cur + len].to_vec();
                 read_cur += len;
                 if anchor >= read_pos {
-                    events.push((anchor, CigarEvent::Ins(payload)));
+                    spans.push(CigarSpan::Indel {
+                        anchor,
+                        event: CigarEvent::Ins(payload),
+                    });
                 }
             }
             CigarOp::Del => {
                 let anchor = ref_cur - 1;
                 ref_cur += len as i64;
                 if anchor >= read_pos {
-                    events.push((anchor, CigarEvent::Del(len)));
+                    spans.push(CigarSpan::Indel {
+                        anchor,
+                        event: CigarEvent::Del(len),
+                    });
                 }
             }
             CigarOp::Skip => {
@@ -63,7 +103,20 @@ pub fn walk_cigar(read_pos: i64, cigar: &[(CigarOp, usize)], seq: &[u8]) -> Vec<
         }
     }
 
-    events
+    spans
+}
+
+/// Pure dual-cursor CIGAR walk. Returns (anchor_0based_ref_pos, event) for each
+/// indel. Thin filter over [`walk_cigar_full`] so the indel anchors are computed
+/// by the exact same cursor logic the pileup uses.
+pub fn walk_cigar(read_pos: i64, cigar: &[(CigarOp, usize)], seq: &[u8]) -> Vec<(i64, CigarEvent)> {
+    walk_cigar_full(read_pos, cigar, seq)
+        .into_iter()
+        .filter_map(|s| match s {
+            CigarSpan::Indel { anchor, event } => Some((anchor, event)),
+            CigarSpan::Aligned { .. } => None,
+        })
+        .collect()
 }
 
 /// Build VCF 4.2 anchor-prefixed REF/ALT alleles from a [`CigarEvent`] and the
@@ -144,7 +197,7 @@ fn variant_result_json(variants: Vec<Variant>, bai: Option<&[u8]>, opts: &Varian
     let mut warnings: Vec<String> = Vec::new();
     if opts.reference_seqs.is_none() {
         warnings.push(
-            "No reference FASTA provided - homozygous variants undetectable (reference base inferred from reads)".to_string(),
+            "No reference FASTA provided - homozygous variants undetectable (reference base inferred from reads); indels not called (REF/anchor bases require a reference)".to_string(),
         );
     }
     if bai.is_none() {
@@ -391,6 +444,10 @@ struct OffsetData {
     order: Vec<usize>,     // base_idx in first-seen order (for ref-inference tie-break)
     seen: [bool; 5],
     positions: [Vec<(usize, usize)>; 5], // (index-in-read, read_len) per base
+    // Indel support anchored AT this offset (anchor = last ref base before the
+    // indel). Keyed by inserted bytes / deleted length; [fwd, rev] by strand.
+    insertions: HashMap<Vec<u8>, [i64; 2]>,
+    deletions: HashMap<usize, [i64; 2]>,
 }
 
 impl OffsetData {
@@ -400,6 +457,8 @@ impl OffsetData {
             order: Vec::new(),
             seen: [false; 5],
             positions: Default::default(),
+            insertions: HashMap::new(),
+            deletions: HashMap::new(),
         }
     }
 }
@@ -477,7 +536,10 @@ fn call_from_pileup(
             continue;
         }
 
-        // Pass 2: base pileup at candidate offsets.
+        // Pass 2: CIGAR-aware base + indel pileup at candidate offsets. A single
+        // dual-cursor walk (`walk_cigar_full`) drives BOTH the SNV accumulators
+        // (per-base on aligned M/=/X runs, at the CORRECT ref position) and the
+        // new indel accumulators — no second, hand-rolled cursor.
         let mut pileup: HashMap<usize, OffsetData> = HashMap::new();
         for &ri in window_reads {
             let read = quality_reads[ri];
@@ -488,28 +550,65 @@ fn call_from_pileup(
             let seq_len = read.seq.len();
             let is_reverse = read.is_reverse();
             let strand_idx = if is_reverse { 1 } else { 0 };
-            for i in 0..seq_len {
-                let pos = read_start + i as i64;
-                let offset = pos - window_start;
-                if offset < 0 || offset as usize >= ws {
-                    continue;
+
+            // Reads decoded without a CIGAR fall back to a single pure-M run,
+            // which reproduces the previous ungapped behaviour exactly.
+            let fallback;
+            let cigar: &[(CigarOp, usize)] = if read.cigar.is_empty() {
+                fallback = [(CigarOp::Match, seq_len)];
+                &fallback
+            } else {
+                &read.cigar
+            };
+
+            for span in walk_cigar_full(read_start, cigar, &read.seq) {
+                match span {
+                    CigarSpan::Aligned { ref0, read_idx, len } => {
+                        for k in 0..len {
+                            let pos = ref0 + k as i64;
+                            let offset = pos - window_start;
+                            if offset < 0 || offset as usize >= ws {
+                                continue;
+                            }
+                            let offset = offset as usize;
+                            if !is_candidate[offset] {
+                                continue;
+                            }
+                            let i = read_idx + k;
+                            let q = if i < read.qual.len() { read.qual[i] as i64 } else { 0 };
+                            if q < opts.min_base_quality as i64 {
+                                continue;
+                            }
+                            let base_idx = base_index(read.seq[i]);
+                            let data = pileup.entry(offset).or_insert_with(OffsetData::new);
+                            if !data.seen[base_idx] {
+                                data.seen[base_idx] = true;
+                                data.order.push(base_idx);
+                            }
+                            data.counts[base_idx][strand_idx] += 1;
+                            data.positions[base_idx].push((i, seq_len));
+                        }
+                    }
+                    CigarSpan::Indel { anchor, event } => {
+                        let offset = anchor - window_start;
+                        if offset < 0 || offset as usize >= ws {
+                            continue;
+                        }
+                        let offset = offset as usize;
+                        if !is_candidate[offset] {
+                            continue;
+                        }
+                        let data = pileup.entry(offset).or_insert_with(OffsetData::new);
+                        match event {
+                            CigarEvent::Ins(payload) => {
+                                data.insertions.entry(payload).or_insert([0, 0])[strand_idx] += 1;
+                            }
+                            CigarEvent::Del(n) => {
+                                data.deletions.entry(n).or_insert([0, 0])[strand_idx] += 1;
+                            }
+                        }
+                    }
                 }
-                let offset = offset as usize;
-                if !is_candidate[offset] {
-                    continue;
-                }
-                let q = if i < read.qual.len() { read.qual[i] as i64 } else { 0 };
-                if q < opts.min_base_quality as i64 {
-                    continue;
-                }
-                let base_idx = base_index(read.seq[i]);
-                let data = pileup.entry(offset).or_insert_with(OffsetData::new);
-                if !data.seen[base_idx] {
-                    data.seen[base_idx] = true;
-                    data.order.push(base_idx);
-                }
-                data.counts[base_idx][strand_idx] += 1;
-                data.positions[base_idx].push((i, seq_len));
             }
         }
 
@@ -618,6 +717,99 @@ fn call_from_pileup(
                     filter: None,
                     id: None,
                 });
+            }
+
+            // Indel emission. Both REF and (for insertions) the anchor base come
+            // from the reference, so indels are only callable with a FASTA; the
+            // missing-FASTA case is surfaced as a warning, not a panic.
+            if let Some(rseq) = ref_seq {
+                let anchor0 = pos as usize;
+
+                // Insertions (deterministic order for stable output).
+                let mut ins_keys: Vec<Vec<u8>> = data.insertions.keys().cloned().collect();
+                ins_keys.sort();
+                for key in ins_keys {
+                    let [fwd, rev] = data.insertions[&key];
+                    let alt_count = fwd + rev;
+                    if alt_count < opts.min_variant_reads {
+                        continue;
+                    }
+                    let allele_freq = alt_count as f64 / total_depth as f64;
+                    if allele_freq < opts.min_allele_freq {
+                        continue;
+                    }
+                    let ev = CigarEvent::Ins(key.clone());
+                    if let Some((ref_str, alt_str, kind)) =
+                        build_indel_alleles(rseq, anchor0, &ev)
+                    {
+                        let minority = fwd.min(rev);
+                        let strand_bias = if alt_count > 0 {
+                            minority as f64 / alt_count as f64
+                        } else {
+                            0.0
+                        };
+                        let qual =
+                            stats::binomial_qual_score(alt_count, total_depth, ERROR_RATE);
+                        out.push(Variant {
+                            chrom: chrom_name.to_string(),
+                            pos: pos + 1, // VCF 1-based, anchor+1 (matches SNV)
+                            ref_base: ref_str,
+                            alt: alt_str,
+                            qual,
+                            kind: kind.to_string(),
+                            depth: total_depth,
+                            ref_count,
+                            alt_count,
+                            allele_freq,
+                            strand_bias,
+                            filter: None,
+                            id: None,
+                        });
+                    }
+                }
+
+                // Deletions.
+                let mut del_keys: Vec<usize> = data.deletions.keys().copied().collect();
+                del_keys.sort_unstable();
+                for n in del_keys {
+                    let [fwd, rev] = data.deletions[&n];
+                    let alt_count = fwd + rev;
+                    if alt_count < opts.min_variant_reads {
+                        continue;
+                    }
+                    let allele_freq = alt_count as f64 / total_depth as f64;
+                    if allele_freq < opts.min_allele_freq {
+                        continue;
+                    }
+                    let ev = CigarEvent::Del(n);
+                    if let Some((ref_str, alt_str, kind)) =
+                        build_indel_alleles(rseq, anchor0, &ev)
+                    {
+                        let minority = fwd.min(rev);
+                        let strand_bias = if alt_count > 0 {
+                            minority as f64 / alt_count as f64
+                        } else {
+                            0.0
+                        };
+                        let qual =
+                            stats::binomial_qual_score(alt_count, total_depth, ERROR_RATE);
+                        out.push(Variant {
+                            chrom: chrom_name.to_string(),
+                            pos: pos + 1, // VCF 1-based, anchor+1 (matches SNV)
+                            ref_base: ref_str,
+                            alt: alt_str,
+                            qual,
+                            kind: kind.to_string(),
+                            depth: total_depth,
+                            ref_count,
+                            alt_count,
+                            allele_freq,
+                            strand_bias,
+                            filter: None,
+                            id: None,
+                        });
+                    }
+                }
             }
         }
     }
@@ -758,5 +950,181 @@ mod tests {
             (CigarOp::SoftClip, 3),
         ];
         assert_eq!(walk_cigar(10, &cig, seq), vec![]); // no indels, must handle H at start
+    }
+
+    // ── 1.4 walk_cigar hardening (review fold-ins) ──
+
+    #[test]
+    fn walk_cigar_pad_op_no_indel() {
+        // Pad (P) consumes neither ref nor read; must not mis-index or emit events.
+        let seq = b"AAAAACCCCC"; // 5M P 5M
+        let cig = vec![
+            (CigarOp::Match, 5),
+            (CigarOp::Pad, 3),
+            (CigarOp::Match, 5),
+        ];
+        assert_eq!(walk_cigar(40, &cig, seq), vec![]);
+    }
+
+    #[test]
+    fn walk_cigar_trailing_insertion() {
+        // Insertion as the LAST op, perfectly in range: must be captured.
+        let seq = b"AAAATT"; // 4M 2I
+        let cig = vec![(CigarOp::Match, 4), (CigarOp::Ins, 2)];
+        assert_eq!(
+            walk_cigar(0, &cig, seq),
+            vec![(3, CigarEvent::Ins(b"TT".to_vec()))]
+        );
+    }
+
+    #[test]
+    fn walk_cigar_insertion_out_of_range_does_not_panic() {
+        // CIGAR claims a longer insertion than seq holds: guard, don't panic.
+        let seq = b"AAAATT"; // 6 bytes, but cigar wants 4M then 5I
+        let cig = vec![(CigarOp::Match, 4), (CigarOp::Ins, 5)];
+        assert_eq!(walk_cigar(0, &cig, seq), vec![]); // skipped, no panic
+    }
+
+    // ── 1.4 pileup integration: build synthetic reads, run the pileup ──
+
+    fn aln(pos: i64, cigar: Vec<(CigarOp, usize)>, seq: &[u8], reverse: bool) -> AlnRecord {
+        AlnRecord {
+            ref_id: 0,
+            pos,
+            mapq: 60,
+            flag: if reverse { 0x10 } else { 0x0 },
+            seq: seq.to_vec(),
+            qual: vec![30; seq.len()],
+            cigar,
+        }
+    }
+
+    fn ref_all_a(len: usize) -> Vec<u8> {
+        vec![b'A'; len]
+    }
+
+    #[test]
+    fn pileup_snv_ungapped_regression() {
+        // 12 pure-M reads of length 20 starting at 100. Reference all 'A'.
+        // 4 reads carry a 'C' at read index 10 (ref pos 110), split 2 fwd / 2 rev.
+        let opts = VariantOptions::default();
+        let rseq = ref_all_a(1000);
+        let mut reads: Vec<AlnRecord> = Vec::new();
+        for k in 0..12usize {
+            let mut s = vec![b'A'; 20];
+            let reverse = k % 2 == 1;
+            if k < 4 {
+                s[10] = b'C'; // alt at the middle (avoid edge filter)
+            }
+            reads.push(aln(100, vec![(CigarOp::Match, 20)], &s, reverse));
+        }
+        let mut out = Vec::new();
+        call_from_pileup(&reads, "chr1", 1000, &opts, Some(&rseq), &mut out, None);
+
+        // Exactly one SNV, A->C at 1-based pos 111, depth 12, ref 8, alt 4.
+        assert_eq!(out.len(), 1, "exactly one variant expected: {out:?}");
+        let v = &out[0];
+        assert_eq!(v.kind, "SNV");
+        assert_eq!(v.pos, 111);
+        assert_eq!(v.ref_base, "A");
+        assert_eq!(v.alt, "C");
+        assert_eq!(v.depth, 12);
+        assert_eq!(v.ref_count, 8);
+        assert_eq!(v.alt_count, 4);
+        assert!((v.allele_freq - 4.0 / 12.0).abs() < 1e-9);
+        assert!(v.qual.is_finite() && v.qual >= 0.0);
+    }
+
+    #[test]
+    fn pileup_emits_deletion() {
+        // 12 reads of 8M3D9M at pos 100. Deleted ref region = positions 108,109,110.
+        // anchor (0-based) = 100+8-1 = 107.  REF = ref[107..=110], ALT = ref[107].
+        let opts = VariantOptions::default();
+        let mut rseq = ref_all_a(1000);
+        rseq[107] = b'G';
+        rseq[109] = b'T';
+        rseq[110] = b'C'; // REF spelled "GATC" (108 stays 'A')
+        // seq: 7 'A' + 'G' (matches ref 100..=107), then 9 'A' (matches ref 111..=119)
+        let mut s = vec![b'A'; 7];
+        s.push(b'G');
+        s.extend_from_slice(&[b'A'; 9]); // total 17 read bases
+        let cig = vec![(CigarOp::Match, 8), (CigarOp::Del, 3), (CigarOp::Match, 9)];
+        let mut reads = Vec::new();
+        for k in 0..12usize {
+            reads.push(aln(100, cig.clone(), &s, k % 2 == 1));
+        }
+        let mut out = Vec::new();
+        call_from_pileup(&reads, "chr1", 1000, &opts, Some(&rseq), &mut out, None);
+
+        // No spurious SNVs (the old ungapped loop would mis-place bases 109/110).
+        assert_eq!(
+            out.iter().filter(|v| v.kind == "SNV").count(),
+            0,
+            "ungapped SNV bug must be fixed: {out:?}"
+        );
+        let dels: Vec<&Variant> = out.iter().filter(|v| v.kind == "DEL").collect();
+        assert_eq!(dels.len(), 1, "exactly one DEL expected: {out:?}");
+        let v = dels[0];
+        assert_eq!(v.pos, 108); // anchor 107 (0-based) + 1
+        assert_eq!(v.ref_base, "GATC");
+        assert_eq!(v.alt, "G");
+        assert_eq!(v.depth, 12);
+        assert_eq!(v.alt_count, 12);
+        assert!((v.allele_freq - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn pileup_emits_insertion() {
+        // 12 reads of 4M2I4M at pos 100. anchor (0-based) = 100+4-1 = 103.
+        let opts = VariantOptions::default();
+        let mut rseq = ref_all_a(1000);
+        rseq[103] = b'C'; // anchor base
+        // seq: 3 'A' + 'C' (ref 100..=103), 2 inserted 'T', 4 'A' (ref 104..=107)
+        let mut s = vec![b'A'; 3];
+        s.push(b'C');
+        s.extend_from_slice(b"TT");
+        s.extend_from_slice(&[b'A'; 4]); // total 10 read bases
+        let cig = vec![(CigarOp::Match, 4), (CigarOp::Ins, 2), (CigarOp::Match, 4)];
+        let mut reads = Vec::new();
+        for k in 0..12usize {
+            reads.push(aln(100, cig.clone(), &s, k % 2 == 1));
+        }
+        let mut out = Vec::new();
+        call_from_pileup(&reads, "chr1", 1000, &opts, Some(&rseq), &mut out, None);
+
+        assert_eq!(
+            out.iter().filter(|v| v.kind == "SNV").count(),
+            0,
+            "no spurious SNVs: {out:?}"
+        );
+        let ins: Vec<&Variant> = out.iter().filter(|v| v.kind == "INS").collect();
+        assert_eq!(ins.len(), 1, "exactly one INS expected: {out:?}");
+        let v = ins[0];
+        assert_eq!(v.pos, 104); // anchor 103 + 1
+        assert_eq!(v.ref_base, "C");
+        assert_eq!(v.alt, "CTT");
+        assert_eq!(v.depth, 12);
+        assert_eq!(v.alt_count, 12);
+    }
+
+    #[test]
+    fn pileup_deletion_needs_reference() {
+        // Same deletion reads, but no reference: must NOT emit a DEL and must not panic.
+        let opts = VariantOptions::default();
+        let mut s = vec![b'A'; 7];
+        s.push(b'G');
+        s.extend_from_slice(&[b'A'; 9]);
+        let cig = vec![(CigarOp::Match, 8), (CigarOp::Del, 3), (CigarOp::Match, 9)];
+        let mut reads = Vec::new();
+        for k in 0..12usize {
+            reads.push(aln(100, cig.clone(), &s, k % 2 == 1));
+        }
+        let mut out = Vec::new();
+        call_from_pileup(&reads, "chr1", 1000, &opts, None, &mut out, None);
+        assert_eq!(
+            out.iter().filter(|v| v.kind == "DEL").count(),
+            0,
+            "no DEL without reference: {out:?}"
+        );
     }
 }
