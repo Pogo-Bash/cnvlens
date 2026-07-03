@@ -15,6 +15,22 @@ pub mod vcf;
 
 use noodles::sam::Header;
 
+/// A single CIGAR operation kind, mirroring the SAM/BAM CIGAR ops but defined
+/// locally so downstream (pure) code can construct CIGAR vectors without pulling
+/// in noodles' types.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CigarOp {
+    Match,
+    Ins,
+    Del,
+    Skip,
+    SoftClip,
+    HardClip,
+    Pad,
+    SeqMatch,
+    SeqMismatch,
+}
+
 /// Lightweight alignment record decoded from a BAM file.
 ///
 /// `pos` is 0-based (matching the raw BAM core field), unlike noodles'
@@ -27,6 +43,7 @@ pub struct AlnRecord {
     pub flag: u16,
     pub seq: Vec<u8>,
     pub qual: Vec<u8>,
+    pub cigar: Vec<(CigarOp, usize)>,
 }
 
 impl AlnRecord {
@@ -41,6 +58,14 @@ impl AlnRecord {
     #[inline]
     pub fn is_duplicate(&self) -> bool {
         self.flag & 0x400 != 0
+    }
+    #[inline]
+    pub fn is_supplementary(&self) -> bool {
+        self.flag & 0x800 != 0
+    }
+    #[inline]
+    pub fn is_qcfail(&self) -> bool {
+        self.flag & 0x200 != 0
     }
     #[inline]
     pub fn is_reverse(&self) -> bool {
