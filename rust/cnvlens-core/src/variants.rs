@@ -106,6 +106,36 @@ pub fn walk_cigar_full(
     spans
 }
 
+/// Reference span (number of reference bases consumed) of a CIGAR: the sum of
+/// the ref-consuming ops `M/=/X/D/N`. This is the read's true reach on the
+/// reference, unlike `seq.len()` which under-counts across `D`/`N`. Used by
+/// Pass-1 candidate selection so positions past a deletion/intron are flagged;
+/// the CIGAR-op classification mirrors [`walk_cigar_full`]'s cursor advances.
+pub fn cigar_ref_span(cigar: &[(CigarOp, usize)]) -> i64 {
+    cigar
+        .iter()
+        .filter_map(|&(op, len)| match op {
+            CigarOp::Match
+            | CigarOp::SeqMatch
+            | CigarOp::SeqMismatch
+            | CigarOp::Del
+            | CigarOp::Skip => Some(len as i64),
+            CigarOp::Ins | CigarOp::SoftClip | CigarOp::HardClip | CigarOp::Pad => None,
+        })
+        .sum()
+}
+
+/// A read's reference span for candidate binning: the CIGAR ref-span when a
+/// CIGAR is present, else `seq.len()` (matching the pileup's pure-M fallback for
+/// CIGAR-less reads).
+fn read_ref_span(read: &AlnRecord) -> i64 {
+    if read.cigar.is_empty() {
+        read.seq.len() as i64
+    } else {
+        cigar_ref_span(&read.cigar)
+    }
+}
+
 /// Pure dual-cursor CIGAR walk. Returns (anchor_0based_ref_pos, event) for each
 /// indel. Thin filter over [`walk_cigar_full`] so the indel anchors are computed
 /// by the exact same cursor logic the pileup uses.
@@ -516,7 +546,8 @@ fn call_from_pileup(
     let mut reads_by_window: HashMap<i64, Vec<usize>> = HashMap::new();
     for (ri, read) in quality_reads.iter().enumerate() {
         let read_start = read.pos;
-        let read_end = read_start + read.seq.len() as i64;
+        // CIGAR-correct reference span (D/N-aware); seq.len() under-covers.
+        let read_end = read_start + read_ref_span(read);
         let start_window = (read_start / WINDOW_SIZE).max(0);
         let end_window = (read_end / WINDOW_SIZE).min(num_windows - 1);
         for w in start_window..=end_window {
@@ -545,7 +576,8 @@ fn call_from_pileup(
         for &ri in window_reads {
             let read = quality_reads[ri];
             let read_start = read.pos;
-            let read_end = read_start + read.seq.len() as i64;
+            // CIGAR-correct reference span (D/N-aware); seq.len() under-covers.
+            let read_end = read_start + read_ref_span(read);
             let clip_start = (read_start.max(window_start) - window_start) as i64;
             let clip_end = (read_end.min(window_end) - window_start) as i64;
             if clip_start < clip_end {
@@ -684,6 +716,14 @@ fn call_from_pileup(
                     (best as i64, BASE_CHARS[best].to_string())
                 }
             };
+
+            // Bug guard: never emit ALT alleles at a reference-`N` position. A
+            // region-sliced reference is left-padded with N (see vm.rs
+            // pad_to_offset); without this, every A/C/G/T pileup base at an N
+            // position (ref_count ≈ 0, VAF ≈ 1.0) becomes a spurious call.
+            if ref_base_idx == 4 {
+                continue;
+            }
 
             let ref_count = if (0..5).contains(&ref_base_idx) {
                 let ri = ref_base_idx as usize;
@@ -1204,5 +1244,73 @@ mod tests {
             0,
             "no DEL without reference: {out:?}"
         );
+    }
+
+    #[test]
+    fn pileup_skips_reference_n_positions() {
+        // Regression (Bug 1): when the reference base is 'N', no ALT may be
+        // emitted. A region-sliced reference left-padded with N would otherwise
+        // turn every pileup base into a spurious VAF≈1.0 call.
+        let opts = VariantOptions::default();
+        let mut rseq = ref_all_a(1000);
+        rseq[110] = b'N'; // reference base at ref pos 110 is N
+        let mut reads: Vec<AlnRecord> = Vec::new();
+        for k in 0..12usize {
+            let mut s = vec![b'A'; 20];
+            s[10] = b'C'; // every read carries 'C' at ref pos 110
+            reads.push(aln(100, vec![(CigarOp::Match, 20)], &s, k % 2 == 1));
+        }
+        let mut out = Vec::new();
+        call_from_pileup(&reads, "chr1", 1000, &opts, Some(&rseq), &mut out, None);
+
+        // No variant of any kind may be emitted at the ref-N position (pos 111).
+        assert_eq!(
+            out.iter().filter(|v| v.pos == 111).count(),
+            0,
+            "no variant may be emitted at a reference-N position: {out:?}"
+        );
+        assert!(out.is_empty(), "no spurious calls anywhere: {out:?}");
+    }
+
+    #[test]
+    fn pileup_candidate_uses_cigar_ref_span_past_deletion() {
+        // Regression (Bug 2): a variant past a deletion in the same read must be
+        // called. With 50M10D50M the read's reference span is 110, but seq.len()
+        // is only 100, so Pass-1 candidate selection using seq.len() would leave
+        // ref offsets [200,210) un-flagged and Pass 2 would skip the variant.
+        let opts = VariantOptions::default();
+        let rseq = ref_all_a(1000);
+        // Read layout at pos 100: 50M -> ref[100..150], 10D -> ref[150..160],
+        // 50M -> ref[160..210]. Variant C at ref pos 200 = read index 90
+        // (50 + (200-160)), safely inside the position-in-read edge window.
+        let cig = vec![
+            (CigarOp::Match, 50),
+            (CigarOp::Del, 10),
+            (CigarOp::Match, 50),
+        ];
+        let mut reads: Vec<AlnRecord> = Vec::new();
+        for k in 0..12usize {
+            let mut s = vec![b'A'; 100];
+            if k < 4 {
+                s[90] = b'C'; // alt past the deletion, 2 fwd / 2 rev
+            }
+            reads.push(aln(100, cig.clone(), &s, k % 2 == 1));
+        }
+        let mut out = Vec::new();
+        call_from_pileup(&reads, "chr1", 1000, &opts, Some(&rseq), &mut out, None);
+
+        let snvs: Vec<&Variant> = out
+            .iter()
+            .filter(|v| v.kind == "SNV" && v.pos == 201)
+            .collect();
+        assert_eq!(
+            snvs.len(),
+            1,
+            "variant past the deletion must be called: {out:?}"
+        );
+        let v = snvs[0];
+        assert_eq!(v.ref_base, "A");
+        assert_eq!(v.alt, "C");
+        assert_eq!(v.alt_count, 4);
     }
 }
