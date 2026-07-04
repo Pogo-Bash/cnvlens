@@ -845,6 +845,24 @@ ORDER BY mapq DESC
 LIMIT 50`,
   },
 ]
+
+const demoQuery = `FROM bam "EGFR_L858R_ex19del_SYNTHETIC.bam"
+WHERE chr = "7" AND pos >= 55240000 AND pos <= 55260000
+CALL variants
+WITH reference = "EGFR_region.fa", min_depth = 20, min_allele_freq = 0.2
+ANNOTATE WITH genes = "EGFR_region.GRCh37.gff3", clinvar = "clinvar_GRCh37_EGFR.vcf.gz"
+ORDER BY pos`
+
+// Teaching variant loaded into the playground via "open in playground →":
+// same query with an explicit SELECT to show projection.
+const demoSelectQuery = `FROM bam "EGFR_L858R_ex19del_SYNTHETIC.bam"
+WHERE chr = "7" AND pos >= 55240000 AND pos <= 55260000
+CALL variants
+WITH reference = "EGFR_region.fa", min_depth = 20, min_allele_freq = 0.2
+ANNOTATE WITH genes = "EGFR_region.GRCh37.gff3", clinvar = "clinvar_GRCh37_EGFR.vcf.gz"
+SELECT chrom, pos, ref, alt, type, allele_freq, gene, exon, aa_change, hgvs_c, clinvar_significance
+ORDER BY pos`
+
 const activeExample = ref('Variants')
 const query = ref(examples[0].query)
 const minAf = ref(0.05)
@@ -875,6 +893,55 @@ watch(query, (q) => {
   const match = examples.find((e) => e.query === q)
   activeExample.value = match ? match.label : ''
 })
+
+/* ── live demo showcase (separate state from the playground) ─────────────── */
+const demoLoading = ref(false)
+const demoError = ref('')
+const demoRan = ref(false)
+const demoRows = ref([])
+
+const demoColumns = computed(() => (demoRows.value.length ? Object.keys(demoRows.value[0]) : []))
+
+// The two injected drivers, picked from the real result rows by genomic
+// position. Returns [] until the demo has run; each entry carries the raw
+// engine row so the card renders live output, never hardcoded values.
+const demoDrivers = computed(() => {
+  const at = (pos) => demoRows.value.find((r) => Number(r.pos) === pos)
+  const snv = at(55259515) // injected L858R
+  const del = at(55242464) // injected exon-19 deletion (anchor pos)
+  return [
+    snv && { label: 'L858R — activating SNV', row: snv },
+    del && { label: 'Exon-19 deletion', row: del },
+  ].filter(Boolean)
+})
+
+async function runDemo() {
+  demoLoading.value = true
+  demoError.value = ''
+  demoRows.value = []
+  demoRan.value = false
+  try {
+    const { execute } = await import('@codonsplice/wasm/helpers')
+    const files = await fetchSampleFiles()
+    const result = await execute({ query: demoQuery, files })
+    demoRows.value = Array.isArray(result)
+      ? result
+      : result?.variants ?? result?.records ?? []
+    demoRan.value = true
+  } catch (e) {
+    demoError.value = e?.message || String(e)
+  } finally {
+    demoLoading.value = false
+  }
+}
+
+// Load the teaching (SELECT) variant into the section-6 playground and scroll to it.
+function openInPlayground() {
+  query.value = demoSelectQuery
+  activeExample.value = 'EGFR drivers (synthetic)'
+  minAf.value = 0.2
+  document.getElementById('try-live')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
 
 async function fetchSampleFiles() {
   const base = import.meta.env.BASE_URL
