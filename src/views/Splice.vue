@@ -510,6 +510,7 @@
       </Collapsible>
     </Collapsible>
 
+    <div id="try-live"></div>
     <!-- ════════════ TREE 6 · TRY IT LIVE ════════════ -->
     <Collapsible title="6 · Try it in your browser" large default-open>
       <p class="text-sm text-subtext0">
@@ -517,6 +518,13 @@
         <code>NA12878_EGFR.bam</code> (EGFR region, chr7) entirely in your browser — nothing is
         uploaded. Edit the query or <code>$min_af</code> and run it.
       </p>
+      <div
+        v-if="examples.find((e) => e.label === activeExample)?.synthetic"
+        class="rounded-lg border border-yellow/60 bg-yellow/5 px-3 py-2 text-xs text-subtext0"
+      >
+        <span class="font-bold text-yellow">⚠ Synthetic sample</span> — injected EGFR drivers on
+        NA12878 (a normal individual). Not real patient calls.
+      </div>
 
       <div class="card-static space-y-3">
         <!-- Example gallery — click to load a runnable query into the editor. -->
@@ -919,6 +927,16 @@ WHERE chr = "7" AND pos >= 55086000 AND pos <= 55120000
 CALL reads
 ORDER BY mapq DESC
 LIMIT 50`,
+  },
+  {
+    label: 'EGFR drivers (synthetic)',
+    synthetic: true,
+    query: `FROM bam "EGFR_L858R_ex19del_SYNTHETIC.bam"
+WHERE chr = "7" AND pos >= 55240000 AND pos <= 55260000
+CALL variants
+WITH reference = "EGFR_region.fa", min_depth = 20, min_allele_freq = 0.2
+ANNOTATE WITH genes = "EGFR_region.GRCh37.gff3", clinvar = "clinvar_GRCh37_EGFR.vcf.gz"
+ORDER BY pos`,
   },
 ]
 
