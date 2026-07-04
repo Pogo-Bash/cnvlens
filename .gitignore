@@ -51,6 +51,7 @@ public/wasm/*.wasm
 !public/sample-data/*.bam.bai
 
 *.vcf.gz
+!public/sample-data/*.vcf.gz
 
 *.fastq
 
