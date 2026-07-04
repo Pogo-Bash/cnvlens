@@ -20,6 +20,82 @@
       </p>
     </section>
 
+    <!-- ════════════ LIVE DEMO · EGFR DRIVERS (synthetic) ════════════ -->
+    <Collapsible title="Live demo · EGFR drivers" large default-open>
+      <!-- MANDATORY, always-visible synthetic label (never inside a v-if) -->
+      <div class="rounded-lg border border-yellow/60 bg-yellow/5 px-3 py-2 text-xs text-subtext0 leading-relaxed">
+        <span class="font-bold text-yellow">⚠ SYNTHETIC sample.</span>
+        Constructed from <code>NA12878</code> (a normal individual) with
+        <strong>injected</strong> EGFR drivers (L858R + an exon-19 deletion) to demonstrate the
+        calling + annotation stack. <strong>These are not real patient calls.</strong>
+        The <code>EGFR p.Gln787=</code> row is a genuine NA12878 polymorphism.
+      </div>
+
+      <p class="text-sm text-subtext0">
+        One query, entirely in your browser: reference-anchored SNV <em>and</em> indel calling,
+        gene/exon annotation, computed HGVS, and ClinVar significance — on the CodonSplice 0.5.1
+        WASM engine. Nothing is uploaded.
+      </p>
+      <CodeBlock lang="sql" :code="demoQuery" />
+
+      <div class="flex flex-wrap items-center gap-3">
+        <button
+          @click="runDemo"
+          :disabled="demoLoading"
+          class="px-4 py-2 rounded-lg text-sm font-bold bg-mauve text-crust hover:bg-lavender transition-colors disabled:opacity-50"
+        >{{ demoLoading ? 'running…' : '▶ Run the live demo' }}</button>
+        <span v-if="demoError" class="text-sm text-red">{{ demoError }}</span>
+        <button
+          v-if="demoRan"
+          @click="openInPlayground"
+          class="text-xs text-mauve hover:text-lavender underline"
+        >open in playground →</button>
+      </div>
+
+      <!-- driver cards — built from the real result rows (demoDrivers) -->
+      <div v-if="demoRan && demoDrivers.length" class="grid gap-3 sm:grid-cols-2">
+        <div v-for="d in demoDrivers" :key="d.label" class="card-static space-y-1.5">
+          <div class="flex items-baseline justify-between gap-2">
+            <span class="text-sm font-bold text-text">{{ d.label }}</span>
+            <span class="text-[11px] font-mono text-overlay1">AF {{ fmt(d.row.allele_freq) }}</span>
+          </div>
+          <div class="text-xs font-mono text-subtext0">
+            chr{{ d.row.chrom }}:{{ d.row.pos }} {{ d.row.ref }}&gt;{{ d.row.alt }} · {{ d.row.type }}
+          </div>
+          <div class="text-xs text-subtext0">
+            <span class="text-blue font-bold">{{ d.row.gene }}</span> · exon {{ d.row.exon }} ·
+            {{ d.row.consequence }}
+            <!-- protein/cDNA HGVS shown ONLY when the engine computed it (SNVs);
+                 the deletion has aa_change '.', so this block is skipped for it. -->
+            <template v-if="d.row.aa_change && d.row.aa_change !== '.'">
+              · <span class="text-green font-mono">{{ d.row.aa_change }}</span>
+              <span v-if="d.row.hgvs_c && d.row.hgvs_c !== '.'" class="font-mono text-subtext0"> / {{ d.row.hgvs_c }}</span>
+            </template>
+          </div>
+          <div v-if="d.row.clinvar_oncogenic && d.row.clinvar_oncogenic !== '.'" class="text-xs">
+            ClinVar: <span class="text-red font-bold">{{ d.row.clinvar_oncogenic }}</span>
+            <span class="text-overlay1">({{ d.row.clinvar_significance }} · {{ d.row.clinvar_id }} · {{ d.row.rsid }})</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- full result — all columns, reusing the playground table style -->
+      <Collapsible v-if="demoRan" title="Full result — all annotation columns">
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs text-left">
+            <thead class="text-subtext1 border-b border-surface1">
+              <tr><th v-for="c in demoColumns" :key="c" class="py-1.5 pr-4 font-bold">{{ c }}</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="(r, i) in demoRows" :key="i" class="border-b border-surface0">
+                <td v-for="c in demoColumns" :key="c" class="py-1 pr-4 text-subtext0 font-mono">{{ fmt(r[c]) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </Collapsible>
+    </Collapsible>
+
     <!-- ════════════ TREE 1 · INSTALL ════════════ -->
     <Collapsible title="1 · Install" large default-open>
       <p class="text-sm text-subtext0">
