@@ -13,7 +13,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@codonsplice/wasm": "^0.1.13",
+    "@codonsplice/wasm": "^0.5.1",
     "@unhead/vue": "^3.1.0",
     "d3": "^7.9.0",
     "plotly.js-dist-min": "^3.1.2",
