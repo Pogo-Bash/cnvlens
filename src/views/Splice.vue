@@ -8,7 +8,15 @@
         BAM/VCF/BED/FASTA, and get variants, coverage, or reads back — on the command line,
         compiled to a standalone binary, or in the browser via WebAssembly.
         <span class="text-subtext1">SpliceQL is the language; CodonSplice is the engine that
-        compiles it to bytecode and runs it on a stack VM.</span>
+        compiles it to bytecode and runs it on a self-contained stack VM, with no external
+        runtime on the query path.</span>
+      </p>
+      <p class="text-sm text-subtext0 leading-relaxed mt-3">
+        It is not a bcftools replacement. It is a common-80% engine with
+        <span class="text-green">verified parity</span> on the operations it covers — variant
+        calling, set operations, multi-allelic normalization, somatic pairing, and annotation —
+        plus reach bcftools structurally lacks: it runs in the browser and embedded, and adds
+        parallel CNV calling. Every parity claim below names the oracle it was checked against.
       </p>
     </section>
 
@@ -213,8 +221,142 @@
       </Collapsible>
     </Collapsible>
 
-    <!-- ════════════ TREE 3 · BUILD WITH IT ════════════ -->
-    <Collapsible title="3 · Build with it — syntax in your own app" large>
+    <!-- ════════════ TREE 3 · SOMATIC, SET-OPS & ANNOTATION ════════════ -->
+    <Collapsible title="3 · Somatic, set operations & annotation" large>
+      <p class="text-sm text-subtext0">
+        Beyond single-file calling, SpliceQL adds clauses for tumor/normal somatic analysis,
+        VCF set operations, multi-allelic normalization, and local annotation — the same
+        building blocks you would otherwise chain together with bcftools, expressed as one query.
+      </p>
+
+      <Collapsible title="One query vs. a bcftools pipeline" default-open>
+        <p class="text-sm text-subtext0">
+          A common task: take tumor and normal VCFs, keep the tumor-private (somatic) variants,
+          annotate them with gene, HGVS, and ClinVar significance, then filter to the pathogenic
+          ones. In SpliceQL that is a single declarative query:
+        </p>
+        <CodeBlock lang="sql" :code="somaticQuery" />
+        <p class="text-sm text-subtext0">
+          The equivalent bcftools route is roughly nine steps of bgzip / tabix / isec / csq /
+          annotate, with intermediate files at each stage:
+        </p>
+        <CodeBlock lang="bash" prompt :code="bcftoolsPipeline" />
+        <p class="text-xs text-overlay1">
+          Same answer. SpliceQL's somatic set is verified byte-identical to the bcftools
+          <code>isec</code> private-A partition (see "Verified parity &amp; honest limits" below).
+        </p>
+      </Collapsible>
+
+      <Collapsible title="PAIRED WITH — tumor / normal somatic">
+        <p class="text-sm text-subtext0">
+          <code>FROM vcf "tumor" PAIRED WITH vcf "normal"</code> keeps variants present in the
+          tumor but not the normal (default <code>MODE somatic</code>); <code>MODE germline</code>
+          keeps the shared set. The match key is the exact
+          <code>(chrom, pos, ref, alt)</code> tuple — the same engine as <code>ISEC</code>.
+        </p>
+        <CodeBlock lang="sql" :code="pairedQuery" />
+      </Collapsible>
+
+      <Collapsible title="ISEC — VCF set operations">
+        <p class="text-sm text-subtext0">
+          <code>FROM vcf "a" ISEC vcf "b" MODE …</code> computes a two-input set operation with
+          bcftools <code>isec</code> semantics: <code>private_a</code> / <code>private_b</code>
+          (records unique to one input), <code>shared</code> / <code>shared_b</code> (intersection,
+          taking A's or B's record), or <code>union</code>.
+        </p>
+        <CodeBlock lang="sql" :code="isecQuery" />
+      </Collapsible>
+
+      <Collapsible title="SPLIT — multi-allelic normalization">
+        <p class="text-sm text-subtext0">
+          <code>SPLIT</code> decomposes multi-allelic records (comma-separated ALTs) into one
+          biallelic record per ALT, with per-allele AF apportioned and indels left-trimmed —
+          the semantics of <code>bcftools norm -m -</code>.
+        </p>
+        <CodeBlock lang="sql" :code="splitQuery" />
+      </Collapsible>
+
+      <Collapsible title="ANNOTATE WITH — gene, ClinVar, HGVS (all local files)">
+        <p class="text-sm text-subtext0">
+          <code>ANNOTATE WITH genes="…", clinvar="…"</code> joins each variant against local
+          annotation databases — a GFF3 gene model and a ClinVar VCF. Every source is a local
+          file; there are no live API calls, so annotation works offline and in the browser
+          (privacy, and a requirement for WASM).
+        </p>
+        <p class="text-sm text-subtext0">
+          The annotator adds these fields, usable in <code>WHERE</code> / <code>SELECT</code>
+          (a missing join fills with <code>"."</code>, never absent):
+        </p>
+        <p class="text-xs font-mono text-subtext0 leading-relaxed">
+          gene · transcript · exon · exon_id · region · consequence · aa_change · hgvs_c ·
+          clinvar_significance · clinvar_oncogenic · clinvar_id · rsid
+        </p>
+        <CodeBlock lang="sql" :code="annotateQuery" />
+        <p class="text-sm text-subtext0">
+          <span class="text-mauve font-bold">Looked-up vs. computed.</span> ClinVar significance is
+          a <em>lookup</em> — a variant gets a clinical interpretation only if it is already in the
+          ClinVar file. HGVS is the opposite: <code>aa_change</code> (e.g.
+          <code>p.Leu858Arg</code>) and <code>hgvs_c</code> (e.g. <code>c.2573T&gt;G</code>) are
+          <em>derived</em> from the genetic code and the reference codon, so they are produced even
+          for novel variants never seen before.
+        </p>
+      </Collapsible>
+
+      <Collapsible title="Referencing — WITH reference, and why it matters">
+        <p class="text-sm text-subtext0">
+          Pass a reference FASTA with <code>CALL variants WITH reference = "chr7.fa"</code>. It is
+          what makes <code>REF</code> the <em>actual</em> reference base at each position. Without
+          it, <code>REF</code> is inferred as the pileup-majority base — a coin-flip at balanced
+          heterozygous sites, and <strong>invisible</strong> for homozygous variants (where nearly
+          every read differs from the reference). A reference is therefore required to call indels
+          and homozygous variants at all, for valid VCF, for truth-set concordance, for indel
+          normalization, and for HGVS codon translation. FASTA contig names must match the input
+          (e.g. <code>&gt;7</code> ↔ <code>7</code>).
+        </p>
+      </Collapsible>
+    </Collapsible>
+
+    <!-- ════════════ TREE 4 · VERIFIED PARITY & HONEST LIMITS ════════════ -->
+    <Collapsible title="4 · Verified parity & honest limits" large>
+      <p class="text-sm text-subtext0">
+        The project's premise is verified honesty: every parity claim below is backed by a test
+        that compares SpliceQL's output to a named oracle. The scope limits are stated just as
+        plainly.
+      </p>
+
+      <Collapsible title="What is verified, and against what oracle" default-open>
+        <table class="w-full text-xs text-left">
+          <thead class="text-subtext1 border-b border-surface1">
+            <tr><th class="py-1.5 pr-3 font-bold">Operation</th><th class="py-1.5 font-bold">Oracle &amp; result</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="v in verified" :key="v[0]" class="border-b border-surface0 align-top">
+              <td class="py-1.5 pr-3 font-mono text-green whitespace-nowrap">{{ v[0] }}</td>
+              <td class="py-1.5 text-subtext0">{{ v[1] }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </Collapsible>
+
+      <Collapsible title="Scope limits — stated plainly">
+        <ul class="text-sm text-subtext0 list-disc ml-5 space-y-1.5">
+          <li v-for="l in limits" :key="l"><span v-html="l"></span></li>
+        </ul>
+      </Collapsible>
+
+      <Collapsible title="Positioning">
+        <p class="text-sm text-subtext0">
+          SpliceQL is <strong>not</strong> a bcftools replacement. It is a common-80% engine with
+          verified parity on the operations it does cover, plus reach that bcftools structurally
+          lacks: it runs in the browser and embedded with no external runtime on the query path,
+          and adds parallel CNV calling. Use it for those; reach for bcftools/samtools for the
+          long tail of the full VCF/BCF surface.
+        </p>
+      </Collapsible>
+    </Collapsible>
+
+    <!-- ════════════ TREE 5 · BUILD WITH IT ════════════ -->
+    <Collapsible title="5 · Build with it — syntax in your own app" large>
       <p class="text-sm text-subtext0">
         CodonSplice compiles to WebAssembly and runs entirely client-side — no server, no genomic
         data leaving the browser. The same Rust engine that powers the <code>splice</code> binary
@@ -292,8 +434,8 @@
       </Collapsible>
     </Collapsible>
 
-    <!-- ════════════ TREE 4 · TRY IT LIVE ════════════ -->
-    <Collapsible title="4 · Try it in your browser" large default-open>
+    <!-- ════════════ TREE 6 · TRY IT LIVE ════════════ -->
+    <Collapsible title="6 · Try it in your browser" large default-open>
       <p class="text-sm text-subtext0">
         This runs CodonSplice's WebAssembly engine against the bundled
         <code>NA12878_EGFR.bam</code> (EGFR region, chr7) entirely in your browser — nothing is
@@ -425,6 +567,10 @@ const clauses = [
   ['ORDER BY', 'sort the results', 'ORDER BY depth DESC'],
   ['LIMIT',    'cap the row count', 'LIMIT 100'],
   ['INTO',     'write results to a file', 'INTO vcf "out.vcf"'],
+  ['ISEC',     'two-input VCF set operation', 'FROM vcf "a" ISEC vcf "b" MODE shared'],
+  ['PAIRED WITH', 'tumor / normal somatic pairing', 'FROM vcf "t" PAIRED WITH vcf "n"'],
+  ['SPLIT',    'normalize multi-allelic records', 'FROM vcf "x" SPLIT'],
+  ['ANNOTATE WITH', 'join local gene / ClinVar / HGVS', 'ANNOTATE WITH genes="g.gff3"'],
 ]
 
 const sources = [
@@ -438,7 +584,7 @@ const sources = [
 ]
 
 const ops = [
-  ['variants', 'min_depth, min_base_quality, min_mapping_quality, min_variant_reads, min_allele_freq (alias min_af), min_strand_bias'],
+  ['variants', 'min_depth, min_base_quality, min_mapping_quality, min_variant_reads, min_allele_freq (alias min_af), min_strand_bias, reference'],
   ['cnv / coverage', 'window_size, amp_threshold, del_threshold, min_windows, segmentation_method'],
   ['reads', '(none)'],
   ['header', '(none)'],
@@ -524,6 +670,59 @@ const architecture = `  SpliceQL (language)            CodonSplice (engine)
                           ▼                      ▼                      ▼
               cnvlens-core::variants   cnvlens-core::coverage    cnvlens-core::bam
                           └──────────── BAI seeking (noodles csi) ────────────┘`
+
+/* ── somatic / set-ops / annotation ─────────────────────────────────────── */
+const somaticQuery = `FROM vcf "tumor.vcf.gz" PAIRED WITH vcf "normal.vcf.gz"
+CALL variants WITH reference = "chr7.fa"
+ANNOTATE WITH genes = "refGene.gff3", clinvar = "clinvar.vcf.gz"
+WHERE clinvar_significance = "Pathogenic"
+SELECT chrom, pos, gene, aa_change, clinvar_significance
+INTO vcf "somatic_pathogenic.vcf"`
+
+const bcftoolsPipeline = `# normalize + index both inputs
+bgzip -c tumor.vcf  > tumor.vcf.gz   && tabix -p vcf tumor.vcf.gz
+bgzip -c normal.vcf > normal.vcf.gz  && tabix -p vcf normal.vcf.gz
+# tumor-private (somatic) set
+bcftools isec -p isec_out tumor.vcf.gz normal.vcf.gz
+bgzip -c isec_out/0000.vcf > somatic.vcf.gz && tabix -p vcf somatic.vcf.gz
+# HGVS / consequence, then ClinVar significance
+bcftools csq -f chr7.fa -g refGene.gff3 somatic.vcf.gz -Oz -o csq.vcf.gz && tabix -p vcf csq.vcf.gz
+bcftools annotate -a clinvar.vcf.gz -c INFO/CLNSIG csq.vcf.gz -Oz -o ann.vcf.gz
+# filter to pathogenic
+bcftools view -i 'INFO/CLNSIG="Pathogenic"' ann.vcf.gz -o somatic_pathogenic.vcf`
+
+const pairedQuery = `FROM vcf "tumor.vcf.gz" PAIRED WITH vcf "normal.vcf.gz" MODE somatic
+INTO vcf "somatic.vcf"`
+
+const isecQuery = `FROM vcf "a.vcf.gz" ISEC vcf "b.vcf.gz" MODE private_a
+INTO vcf "only_in_a.vcf"`
+
+const splitQuery = `FROM vcf "multiallelic.vcf" SPLIT
+CALL variants
+INTO vcf "biallelic.vcf"`
+
+const annotateQuery = `FROM vcf "egfr.vcf"
+CALL variants WITH reference = "chr7.fa"
+ANNOTATE WITH genes = "refGene.gff3", clinvar = "clinvar.vcf.gz"
+SELECT chrom, pos, gene, exon, aa_change, hgvs_c, clinvar_significance
+INTO vcf "annotated.vcf"`
+
+const verified = [
+  ['variant calling', 'Differential vs the GIAB truth set and samtools/bcftools on NA12878 — concordance is measured, not assumed by construction.'],
+  ['ISEC / set ops', 'Byte-identical to bcftools isec partitions (0000–0003) on an exact (chrom,pos,ref,alt) key; live-bcftools differential test.'],
+  ['PAIRED WITH (somatic)', 'Somatic set byte-identical to bcftools isec private-A; germline to the shared partition.'],
+  ['SPLIT (multi-allelic)', 'Record-set identical to bcftools norm -m -, with per-allele AF apportioned and indels trimmed.'],
+  ['ANNOTATE (HGVS)', 'EGFR L858R → p.Leu858Arg / c.2573T>G, derived from the genetic code and verified against the real chr7 reference (forward strand).'],
+  ['parallel CNV', 'Byte-identical to the serial caller across 2–8 shards, with a positive control: one amplification spanning a shard boundary, emitted as a single call.'],
+]
+
+const limits = [
+  'A common-80% engine, <strong>not</strong> the full bcftools/BCF surface.',
+  'CNV amplification <strong>sensitivity</strong> is unvalidated on real tumors — correctness is proven (no false calls on flat diploid), but a sensitivity number awaits an amplified-tumor truth set.',
+  'HGVS is verified on the <strong>forward strand</strong> (EGFR) only; reverse-strand output is implemented but not yet verified end-to-end against a reference.',
+  'BAQ (base alignment quality) is not implemented — this accounts for the residual precision-margin gap vs bcftools.',
+  '<code>INTO bam</code> / <code>cram</code> are unsupported sinks; CRAM input is planned.',
+]
 
 /* ── framework snippets ─────────────────────────────────────────────────── */
 const scaffold = `splice create                  # interactive menu — react / vue / svelte / astro
@@ -684,8 +883,17 @@ async function fetchSampleFiles() {
     if (!r.ok) throw new Error(`sample file ${name} not found (${r.status})`)
     return new Uint8Array(await r.arrayBuffer())
   }
-  const [bam, bai] = await Promise.all([get('NA12878_EGFR.bam'), get('NA12878_EGFR.bam.bai')])
-  return { 'NA12878_EGFR.bam': bam, 'NA12878_EGFR.bam.bai': bai }
+  // All files any example/showcase might reference. Fetched only on first run
+  // and browser-cached thereafter; the query names the files it actually uses.
+  const names = [
+    'NA12878_EGFR.bam', 'NA12878_EGFR.bam.bai',
+    'EGFR_L858R_ex19del_SYNTHETIC.bam', 'EGFR_L858R_ex19del_SYNTHETIC.bam.bai',
+    'EGFR_region.fa',
+    'EGFR_region.GRCh37.gff3',
+    'clinvar_GRCh37_EGFR.vcf.gz',
+  ]
+  const bytes = await Promise.all(names.map(get))
+  return Object.fromEntries(names.map((n, i) => [n, bytes[i]]))
 }
 
 async function runQuery() {
